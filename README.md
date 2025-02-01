@@ -36,19 +36,25 @@ The built binary should be in the `build/Release/` directory with the name `qoiv
 
 Key navigation
 
-| key | action     |
-| :-- | :--------- |
-| H   | move left  |
-| J   | move down  |
-| K   | move up    |
-| L   | move right |
-| I   | zoom in    |
-| O   | zoom out   |
+| key | action            |
+| :-: | :---------------- |
+|  H  | move left         |
+|  J  | move down         |
+|  K  | move up           |
+|  L  | move right        |
+|  I  | zoom in           |
+|  O  | zoom out          |
+|  F  | toggle fullscreen | 
 
 Mouse navigation
 
 |             | action            |
-| :---------- | ----------------- |
+| :---------- | :---------------- |
 | drag        | move image around |
 | scroll up   | zoom out          |
 | scroll down | zoom in           |
+
+## Preview
+
+https://github.com/user-attachments/assets/19c51592-34a2-4b39-875b-0a63a63498fd
+
