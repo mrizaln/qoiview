@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.16)
+project(qoiview VERSION 0.0.0)
+
+include(cmake/prelude.cmake)
+
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+find_package(fmt REQUIRED)
+find_package(glfw3 REQUIRED)
+find_package(glad REQUIRED)
+find_package(CLI11 REQUIRED)
+
+include(cmake/fetched-libs.cmake)
+
+add_executable(main source/main.cpp)
+target_include_directories(main PRIVATE source)
+target_link_libraries(main PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp)
+
+if(MSVC)
+    target_compile_options(main PRIVATE /W4 /WX)
+else()
+    target_compile_options(main PRIVATE -Wall -Wextra -Wconversion)
+endif()
