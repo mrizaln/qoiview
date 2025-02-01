@@ -14,12 +14,12 @@ find_package(CLI11 REQUIRED)
 
 include(cmake/fetched-libs.cmake)
 
-add_executable(main source/main.cpp)
-target_include_directories(main PRIVATE source)
-target_link_libraries(main PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp)
+add_executable(qoiview source/main.cpp)
+target_include_directories(qoiview PRIVATE source)
+target_link_libraries(qoiview PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp)
 
 if(MSVC)
-    target_compile_options(main PRIVATE /W4 /WX)
+    target_compile_options(qoiview PRIVATE /W4 /WX)
 else()
-    target_compile_options(main PRIVATE -Wall -Wextra -Wconversion)
+    target_compile_options(qoiview PRIVATE -Wall -Wextra -Wconversion)
 endif()
