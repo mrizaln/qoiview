@@ -281,7 +281,7 @@ public:
     Vec2<> m_offset       = { 0.0f, 0.0f };
     Vec2<> m_aspect       = { 1.0f, 1.0f };
     Vec2<> m_mouse        = { 0.0f, 0.0f };
-    float  m_zoom         = 1.0f;
+    float  m_zoom         = 1.0f;    // relative to window size
     Filter m_filter       = Filter::Linear;
     bool   m_mipmap       = true;
     bool   m_mousePressed = false;
@@ -417,7 +417,8 @@ private:
         glfwGetWindowSize(m_window, &width, &height);
 
         auto windowScale = static_cast<float>(width) / static_cast<float>(mode->width);
-        auto zoom        = static_cast<int>(m_zoom * 100.0f * windowScale * m_aspect.m_x);
+        auto imageScale  = static_cast<float>(m_imageSize.m_x) / static_cast<float>(mode->width);
+        auto zoom        = static_cast<int>(m_zoom * 100.0f * windowScale / imageScale * m_aspect.m_x);
 
         auto title = fmt::format(
             "[{}/{}] [{}x{}] [{}%] QoiView - {} [filter:{}|mipmap:{}]",
