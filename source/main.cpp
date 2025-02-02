@@ -117,6 +117,9 @@ public:
         prepareRect();
         prepareShader();
         prepareTexture();
+
+        m_monitor = glfwGetPrimaryMonitor();
+        m_mode    = glfwGetVideoMode(m_monitor);
     }
 
     ~QoiView()
@@ -147,7 +150,6 @@ public:
         glfwSwapInterval(0);
 
         while (not glfwWindowShouldClose(m_window)) {
-            updateTitle();
             glClear(GL_COLOR_BUFFER_BIT);
             glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, nullptr);
 
@@ -170,6 +172,7 @@ public:
         }
 
         applyUniform(Uniform::Aspect);
+        updateTitle();
     }
 
     void updateZoom(Zoom zoom)
@@ -181,6 +184,7 @@ public:
         }
 
         applyUniform(Uniform::Zoom);
+        updateTitle();
     }
 
     void updateOffset(Movement movement)
@@ -204,7 +208,7 @@ public:
 
     void toggleFullscreen()
     {
-        if (m_fullscreen) {
+        if (glfwGetWindowMonitor(m_window) != nullptr) {
             auto [xpos, ypos]    = m_windowPos;
             auto [width, height] = m_windowSize;
             glfwSetWindowMonitor(m_window, nullptr, xpos, ypos, width, height, GLFW_DONT_CARE);
@@ -212,13 +216,9 @@ public:
             glfwGetWindowPos(m_window, &m_windowPos.m_x, &m_windowPos.m_y);
             glfwGetWindowSize(m_window, &m_windowSize.m_x, &m_windowSize.m_y);
 
-            auto* monitor = glfwGetPrimaryMonitor();
-            auto* mode    = glfwGetVideoMode(monitor);
-
-            glfwSetWindowMonitor(m_window, monitor, 0, 0, mode->width, mode->height, mode->refreshRate);
+            const auto& mode = *m_mode;
+            glfwSetWindowMonitor(m_window, m_monitor, 0, 0, mode.width, mode.height, mode.refreshRate);
         }
-
-        m_fullscreen = not m_fullscreen;
     }
 
     void toggleFiltering()
@@ -226,11 +226,13 @@ public:
         auto count  = static_cast<int>(Filter::count);
         auto filter = static_cast<Filter>((static_cast<int>(m_filter) + 1) % count);
         updateFiltering(filter, m_mipmap);
+        updateTitle();
     }
 
     void toggleMipmap()
     {
-        updateFiltering(m_filter, not m_mipmap);    //
+        updateFiltering(m_filter, not m_mipmap);
+        updateTitle();
     }
 
     void nextFile()
@@ -265,12 +267,36 @@ public:
     {
         m_zoom = 1.0f;
         applyUniform(Uniform::Zoom);
+        updateTitle();
     }
 
     void resetOffset()
     {
         m_offset = { 0.0f, 0.0f };
         applyUniform(Uniform::Offset);
+    }
+
+    void updateTitle()
+    {
+        int width, height;
+        glfwGetWindowSize(m_window, &width, &height);
+
+        auto windowScale = static_cast<float>(width) / static_cast<float>(m_mode->width);
+        auto imageScale  = static_cast<float>(m_imageSize.m_x) / static_cast<float>(m_mode->width);
+        auto zoom        = static_cast<int>(m_zoom * 100.0f * windowScale / imageScale * m_aspect.m_x);
+
+        auto title = fmt::format(
+            "[{}/{}] [{}x{}] [{}%] QoiView - {} [filter:{}|mipmap:{}]",
+            m_index + 1,
+            m_files.size(),
+            m_imageSize.m_x,
+            m_imageSize.m_y,
+            zoom,
+            currentFile().filename().string(),
+            m_filter == Filter::Linear ? "linear" : "nearest",
+            m_mipmap ? "yes" : "no"
+        );
+        glfwSetWindowTitle(m_window, title.c_str());
     }
 
     const fs::path& currentFile() const
@@ -285,7 +311,6 @@ public:
     Filter m_filter       = Filter::Linear;
     bool   m_mipmap       = true;
     bool   m_mousePressed = false;
-    bool   m_fullscreen   = false;
 
 private:
     void prepareRect()
@@ -408,32 +433,6 @@ private:
         }
     }
 
-    void updateTitle()
-    {
-        auto* monitor = glfwGetPrimaryMonitor();
-        auto* mode    = glfwGetVideoMode(monitor);
-
-        int width, height;
-        glfwGetWindowSize(m_window, &width, &height);
-
-        auto windowScale = static_cast<float>(width) / static_cast<float>(mode->width);
-        auto imageScale  = static_cast<float>(m_imageSize.m_x) / static_cast<float>(mode->width);
-        auto zoom        = static_cast<int>(m_zoom * 100.0f * windowScale / imageScale * m_aspect.m_x);
-
-        auto title = fmt::format(
-            "[{}/{}] [{}x{}] [{}%] QoiView - {} [filter:{}|mipmap:{}]",
-            m_index + 1,
-            m_files.size(),
-            m_imageSize.m_x,
-            m_imageSize.m_y,
-            zoom,
-            currentFile().filename().string(),
-            m_filter == Filter::Linear ? "linear" : "nearest",
-            m_mipmap ? "yes" : "no"
-        );
-        glfwSetWindowTitle(m_window, title.c_str());
-    }
-
     void applyUniform(Uniform uniform)
     {
         auto loc = [this](const char* name) { return glGetUniformLocation(m_program, name); };
@@ -445,12 +444,15 @@ private:
         }
     }
 
-    GLFWwindow* m_window;
-    GLuint      m_vbo;
-    GLuint      m_vao;
-    GLuint      m_ebo;
-    GLuint      m_program;
-    GLuint      m_texture;
+    GLFWwindow*        m_window;
+    GLFWmonitor*       m_monitor;
+    const GLFWvidmode* m_mode;
+
+    GLuint m_vbo;
+    GLuint m_vao;
+    GLuint m_ebo;
+    GLuint m_program;
+    GLuint m_texture;
 
     std::span<const fs::path> m_files;
     std::size_t               m_index;
