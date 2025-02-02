@@ -1,15 +1,18 @@
+#include <algorithm>
 #include <cassert>
 #include <filesystem>
+#include <ranges>
 
 #include <qoipp.hpp>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <glad/glad.h>
 #include <fmt/core.h>
-#include <fmt/std.h>
 #include <CLI/CLI.hpp>
 
 namespace fs = std::filesystem;
+namespace sv = std::views;
+namespace sr = std::ranges;
 
 constexpr auto vertexShader = R"glsl(
     #version 300 es
@@ -58,6 +61,12 @@ constexpr auto indices = std::array{
     2, 3, 0,    // lower-left triangle
 };
 
+struct Inputs
+{
+    std::vector<fs::path> m_files;
+    std::size_t           m_start;
+};
+
 template <typename T = float>
 struct Vec2
 {
@@ -79,12 +88,29 @@ enum class Zoom
     Out,
 };
 
+enum class Filter
+{
+    Linear,
+    Nearest,
+
+    count
+};
+
+enum class Uniform
+{
+    Zoom,
+    Offset,
+    Aspect,
+    Tex,
+};
+
 class QoiView
 {
 public:
-    QoiView(GLFWwindow* window, fs::path path)
+    QoiView(GLFWwindow* window, std::span<const fs::path> files, std::size_t start)
         : m_window{ window }
-        , m_path{ std::move(path) }
+        , m_files{ files }
+        , m_index{ start }
     {
         glfwSetWindowUserPointer(m_window, this);
 
@@ -97,9 +123,9 @@ public:
     {
         glDeleteTextures(1, &m_texture);
         glDeleteProgram(m_program);
-        glDeleteBuffers(1, &m_vbo);
         glDeleteBuffers(1, &m_ebo);
         glDeleteVertexArrays(1, &m_vao);
+        glDeleteBuffers(1, &m_vbo);
     }
 
     void run(int width, int height)
@@ -115,12 +141,13 @@ public:
         glViewport(0, 0, width, height);
         updateAspect(width, height);
 
-        glUniform1f(glGetUniformLocation(m_program, "zoom"), m_zoom);
-        glUniform2f(glGetUniformLocation(m_program, "offset"), m_offset.m_x, m_offset.m_y);
+        applyUniform(Uniform::Zoom);
+        applyUniform(Uniform::Offset);
 
         glfwSwapInterval(0);
 
         while (not glfwWindowShouldClose(m_window)) {
+            updateTitle();
             glClear(GL_COLOR_BUFFER_BIT);
             glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, nullptr);
 
@@ -142,8 +169,7 @@ public:
             m_aspect.m_y = 1.0f;
         }
 
-        auto loc = glGetUniformLocation(m_program, "aspect");
-        glUniform2f(loc, m_aspect.m_x, m_aspect.m_y);
+        applyUniform(Uniform::Aspect);
     }
 
     void updateZoom(Zoom zoom)
@@ -154,8 +180,7 @@ public:
             m_zoom /= 1.1f;
         }
 
-        auto loc = glGetUniformLocation(m_program, "zoom");
-        glUniform1f(loc, m_zoom);
+        applyUniform(Uniform::Zoom);
     }
 
     void updateOffset(Movement movement)
@@ -167,24 +192,22 @@ public:
         case Movement::Right: m_offset.m_x += 0.1f / m_zoom; break;
         }
 
-        auto loc = glGetUniformLocation(m_program, "offset");
-        glUniform2f(loc, m_offset.m_x, m_offset.m_y);
+        applyUniform(Uniform::Offset);
     }
 
     void incrementOffset(Vec2<> offset)
     {
         m_offset.m_x -= offset.m_x / m_aspect.m_x / m_zoom * 2.0f;
         m_offset.m_y -= offset.m_y / m_aspect.m_y / m_zoom * 2.0f;
-        auto loc      = glGetUniformLocation(m_program, "offset");
-        glUniform2f(loc, m_offset.m_x, m_offset.m_y);
+        applyUniform(Uniform::Offset);
     }
 
     void toggleFullscreen()
     {
         if (m_fullscreen) {
-            glfwSetWindowMonitor(
-                m_window, nullptr, m_windowPos.m_x, m_windowPos.m_y, m_windowSize.m_x, m_windowSize.m_y, 0
-            );
+            auto [xpos, ypos]    = m_windowPos;
+            auto [width, height] = m_windowSize;
+            glfwSetWindowMonitor(m_window, nullptr, xpos, ypos, width, height, GLFW_DONT_CARE);
         } else {
             glfwGetWindowPos(m_window, &m_windowPos.m_x, &m_windowPos.m_y);
             glfwGetWindowSize(m_window, &m_windowSize.m_x, &m_windowSize.m_y);
@@ -198,10 +221,69 @@ public:
         m_fullscreen = not m_fullscreen;
     }
 
+    void toggleFiltering()
+    {
+        auto count  = static_cast<int>(Filter::count);
+        auto filter = static_cast<Filter>((static_cast<int>(m_filter) + 1) % count);
+        updateFiltering(filter, m_mipmap);
+    }
+
+    void toggleMipmap()
+    {
+        updateFiltering(m_filter, not m_mipmap);    //
+    }
+
+    void nextFile()
+    {
+        if (m_files.size() == 1) {
+            return;
+        }
+
+        m_index = (m_index + 1) % m_files.size();
+        prepareTexture();
+
+        int width, height;
+        glfwGetWindowSize(m_window, &width, &height);
+        updateAspect(width, height);
+    }
+
+    void previousFile()
+    {
+        if (m_files.size() == 1) {
+            return;
+        }
+
+        m_index = (m_index - 1) % m_files.size();
+        prepareTexture();
+
+        int width, height;
+        glfwGetWindowSize(m_window, &width, &height);
+        updateAspect(width, height);
+    }
+
+    void resetZoom()
+    {
+        m_zoom = 1.0f;
+        applyUniform(Uniform::Zoom);
+    }
+
+    void resetOffset()
+    {
+        m_offset = { 0.0f, 0.0f };
+        applyUniform(Uniform::Offset);
+    }
+
+    const fs::path& currentFile() const
+    {
+        return m_files[m_index];    //
+    }
+
     Vec2<> m_offset       = { 0.0f, 0.0f };
     Vec2<> m_aspect       = { 1.0f, 1.0f };
     Vec2<> m_mouse        = { 0.0f, 0.0f };
     float  m_zoom         = 1.0f;
+    Filter m_filter       = Filter::Linear;
+    bool   m_mipmap       = true;
     bool   m_mousePressed = false;
     bool   m_fullscreen   = false;
 
@@ -241,6 +323,7 @@ private:
         if (success == GL_FALSE) {
             glGetShaderInfoLog(vert, buf.size(), nullptr, buf.data());
             fmt::println(stderr, "Failed to compile vertex shader: {}", buf.data());
+            glfwTerminate();
             std::exit(1);
         }
 
@@ -252,6 +335,7 @@ private:
         if (success == GL_FALSE) {
             glGetShaderInfoLog(frag, buf.size(), nullptr, buf.data());
             fmt::println(stderr, "Failed to compile fragment shader: {}", buf.data());
+            glfwTerminate();
             std::exit(1);
         }
 
@@ -264,6 +348,7 @@ private:
         if (success == GL_FALSE) {
             glGetProgramInfoLog(m_program, buf.size(), nullptr, buf.data());
             fmt::println(stderr, "Failed to link shader program: {}", buf.data());
+            glfwTerminate();
             std::exit(1);
         }
 
@@ -273,15 +358,20 @@ private:
 
     void prepareTexture()
     {
-        assert(fs::exists(m_path) and fs::is_regular_file(m_path));
-        auto [data, desc] = qoipp::decodeFromFile(m_path, qoipp::Channels::RGBA, true);
+        const auto& file = currentFile();
+        assert(fs::exists(file) and fs::is_regular_file(file));
+        auto [data, desc] = qoipp::decodeFromFile(file, qoipp::Channels::RGBA, true);
+
+        if (m_texture != 0) {
+            glDeleteTextures(1, &m_texture);
+        }
 
         glGenTextures(1, &m_texture);
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
         auto format = desc.m_channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
@@ -291,8 +381,7 @@ private:
         glGenerateMipmap(GL_TEXTURE_2D);
 
         glUseProgram(m_program);
-        auto loc = glGetUniformLocation(m_program, "tex");
-        glUniform1i(loc, 0);
+        applyUniform(Uniform::Tex);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_texture);
@@ -303,13 +392,67 @@ private:
         };
     }
 
+    void updateFiltering(Filter filter, bool mipmap)
+    {
+        m_filter = filter;
+        m_mipmap = mipmap;
+
+        if (m_filter == Filter::Linear) {
+            auto min = m_mipmap ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        } else {
+            auto min = m_mipmap ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST;
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
+            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+        }
+    }
+
+    void updateTitle()
+    {
+        auto* monitor = glfwGetPrimaryMonitor();
+        auto* mode    = glfwGetVideoMode(monitor);
+
+        int width, height;
+        glfwGetWindowSize(m_window, &width, &height);
+
+        auto windowScale = static_cast<float>(width) / static_cast<float>(mode->width);
+        auto zoom        = static_cast<int>(m_zoom * 100.0f * windowScale * m_aspect.m_x);
+
+        auto title = fmt::format(
+            "[{}/{}] [{}x{}] [{}%] QoiView - {} [filter:{}|mipmap:{}]",
+            m_index + 1,
+            m_files.size(),
+            m_imageSize.m_x,
+            m_imageSize.m_y,
+            zoom,
+            currentFile().filename().string(),
+            m_filter == Filter::Linear ? "linear" : "nearest",
+            m_mipmap ? "yes" : "no"
+        );
+        glfwSetWindowTitle(m_window, title.c_str());
+    }
+
+    void applyUniform(Uniform uniform)
+    {
+        auto loc = [this](const char* name) { return glGetUniformLocation(m_program, name); };
+        switch (uniform) {
+        case Uniform::Zoom: glUniform1f(loc("zoom"), m_zoom); break;
+        case Uniform::Offset: glUniform2f(loc("offset"), m_offset.m_x, m_offset.m_y); break;
+        case Uniform::Aspect: glUniform2f(loc("aspect"), m_aspect.m_x, m_aspect.m_y); break;
+        case Uniform::Tex: glUniform1i(loc("tex"), 0); break;
+        }
+    }
+
     GLFWwindow* m_window;
-    fs::path    m_path;
     GLuint      m_vbo;
     GLuint      m_vao;
     GLuint      m_ebo;
     GLuint      m_program;
     GLuint      m_texture;
+
+    std::span<const fs::path> m_files;
+    std::size_t               m_index;
 
     Vec2<int> m_imageSize;
     Vec2<int> m_windowPos;
@@ -345,6 +488,14 @@ void keyCallback(GLFWwindow* window, int key, int, int action, int)
     case GLFW_KEY_I: view.updateZoom(Zoom::In); break;
     case GLFW_KEY_O: view.updateZoom(Zoom::Out); break;
     case GLFW_KEY_F: view.toggleFullscreen(); break;
+    case GLFW_KEY_N: view.toggleFiltering(); break;
+    case GLFW_KEY_M: view.toggleMipmap(); break;
+    case GLFW_KEY_R: (view.resetZoom(), view.resetOffset()); break;
+    case GLFW_KEY_P: fmt::println("{}", view.currentFile().c_str()); break;
+    case GLFW_KEY_UP: view.updateZoom(Zoom::In); break;
+    case GLFW_KEY_DOWN: view.updateZoom(Zoom::Out); break;
+    case GLFW_KEY_RIGHT: view.nextFile(); break;
+    case GLFW_KEY_LEFT: view.previousFile(); break;
     }
 }
 
@@ -352,13 +503,13 @@ void cursorCallback(GLFWwindow* window, double xpos, double ypos)
 {
     auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
 
-    int width, height;
-    glfwGetWindowSize(window, &width, &height);
-
     auto x = static_cast<float>(xpos);
     auto y = static_cast<float>(ypos);
 
     if (view.m_mousePressed) {
+        int width, height;
+        glfwGetWindowSize(window, &width, &height);
+
         auto dx = (x - view.m_mouse.m_x) / static_cast<float>(width);
         auto dy = (view.m_mouse.m_y - y) / static_cast<float>(height);
         view.incrementOffset({ dx, dy });
@@ -385,12 +536,64 @@ void scrollCallback(GLFWwindow* window, double, double yoffset)
     }
 }
 
+std::optional<Inputs> getQoiFiles(std::span<const fs::path> inputs)
+{
+    auto result          = std::optional<Inputs>{ std::in_place, std::vector<fs::path>{}, 0 };
+    auto& [files, start] = result.value();
+
+    auto isQoi = [](const fs::path& path) {
+        return fs::is_regular_file(path) and qoipp::readHeaderFromFile(path).has_value();
+    };
+
+    if (inputs.size() == 1) {
+        auto input = inputs.front();
+
+        if (not fs::exists(input)) {
+            fmt::println(stderr, "No such file or directory '{}'", input.c_str());
+            return {};
+        } else if (fs::is_directory(input)) {
+            for (auto file : fs::directory_iterator(input) | sv::filter(isQoi)) {
+                files.push_back(file);
+            }
+            if (files.empty()) {
+                fmt::println(stderr, "No valid qoi files found in '{}' directory", input.c_str());
+                return {};
+            }
+        } else if (fs::is_regular_file(input)) {
+            if (isQoi(input)) {
+                auto parent = fs::directory_iterator{ fs::canonical(input).parent_path() };
+                for (auto input : parent | sv::filter(isQoi)) {
+                    files.push_back(input);
+                }
+                auto isInput = [&](const fs::path& path) { return fs::equivalent(path, input); };
+                start        = static_cast<std::size_t>(sr::find_if(files, isInput) - files.begin());
+            } else {
+                fmt::println(stderr, "Not a valid qoi file '{}'", input.c_str());
+                return {};
+            }
+        } else {
+            fmt::println(stderr, "Not a regular file or directory '{}'", input.c_str());
+            return {};
+        }
+    } else {
+        for (auto input : inputs | sv::filter(isQoi)) {
+            files.push_back(input);
+        }
+        if (files.empty()) {
+            fmt::println(stderr, "No valid qoi files found in input arguments");
+            return {};
+        }
+    }
+
+    return result;
+}
+
 int main(int argc, char** argv)
 {
     auto app = CLI::App{ "QoiView - A simple qoi image viewer" };
 
-    auto input = fs::path{};
-    app.add_option("input", input, "Input qoi image file")->required();
+    auto files = std::vector<fs::path>{};
+    app.add_option("files", files, "Input qoi file or directory")->required()->check(CLI::ExistingPath);
 
     if (argc == 1) {
         fmt::print(stderr, "{}", app.help());
@@ -399,21 +602,10 @@ int main(int argc, char** argv)
 
     CLI11_PARSE(app, argc, argv);
 
-    if (not fs::exists(input)) {
-        fmt::println(stderr, "No such file '{}'", input.string());
-        return 1;
-    } else if (not fs::is_regular_file(input)) {
-        fmt::println(stderr, "'{}' is not a regular file", input.string());
+    auto inputs = getQoiFiles(files);
+    if (not inputs.has_value()) {
         return 1;
     }
-
-    auto maybeHeader = qoipp::readHeaderFromFile(input);
-    if (not maybeHeader) {
-        fmt::println(stderr, "Failed to read qoi header from file '{}', possibly not a qoi image", input);
-        return 1;
-    }
-
-    glfwSetErrorCallback(errorCallback);
 
     if (not glfwInit()) {
         fmt::println(stderr, "Failed to initialize GLFW");
@@ -427,18 +619,25 @@ int main(int argc, char** argv)
     auto* monitor = glfwGetPrimaryMonitor();
     auto* mode    = glfwGetVideoMode(monitor);
 
-    auto monitorRatio = static_cast<float>(mode->width) / static_cast<float>(mode->height);
-    auto imageRatio   = static_cast<float>(maybeHeader->m_width) / static_cast<float>(maybeHeader->m_height);
+    auto header = qoipp::readHeaderFromFile(inputs->m_files[inputs->m_start]).value();
 
     auto width  = 0;
     auto height = 0;
 
-    if (monitorRatio > imageRatio) {
-        width  = static_cast<int>(static_cast<float>(mode->height) * imageRatio);
-        height = mode->height;
+    if (static_cast<int>(header.m_height) > mode->height or static_cast<int>(header.m_width) > mode->width) {
+        auto monitorRatio = static_cast<float>(mode->width) / static_cast<float>(mode->height);
+        auto imageRatio   = static_cast<float>(header.m_width) / static_cast<float>(header.m_height);
+
+        if (monitorRatio > imageRatio) {
+            width  = static_cast<int>(static_cast<float>(mode->height) * imageRatio);
+            height = mode->height;
+        } else {
+            width  = mode->width;
+            height = static_cast<int>(static_cast<float>(mode->width) / imageRatio);
+        }
     } else {
-        width  = mode->width;
-        height = static_cast<int>(static_cast<float>(mode->width) / imageRatio);
+        width  = static_cast<int>(header.m_width);
+        height = static_cast<int>(header.m_height);
     }
 
     auto* window = glfwCreateWindow(width, height, "QoiView", nullptr, nullptr);
@@ -457,6 +656,8 @@ int main(int argc, char** argv)
     glfwSetMouseButtonCallback(window, mouseButtonCallback);
     glfwSetScrollCallback(window, scrollCallback);
 
-    auto view = QoiView{ window, input };
+    auto view = QoiView{ window, inputs->m_files, inputs->m_start };
     view.run(width, height);
+
+    glfwTerminate();
 }
