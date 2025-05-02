@@ -5,10 +5,10 @@
 
 #include <qoipp.hpp>
 #define GLFW_INCLUDE_NONE
-#include <GLFW/glfw3.h>
-#include <glad/glad.h>
-#include <fmt/core.h>
 #include <CLI/CLI.hpp>
+#include <GLFW/glfw3.h>
+#include <fmt/core.h>
+#include <glad/glad.h>
 
 namespace fs = std::filesystem;
 namespace sv = std::views;
@@ -385,7 +385,7 @@ private:
     {
         const auto& file = currentFile();
         assert(fs::exists(file) and fs::is_regular_file(file));
-        auto [data, desc] = qoipp::decodeFromFile(file, qoipp::Channels::RGBA, true);
+        auto [data, desc] = qoipp::decode_from_file(file, qoipp::Channels::RGBA, true);
 
         if (m_texture != 0) {
             glDeleteTextures(1, &m_texture);
@@ -399,9 +399,9 @@ private:
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        auto format = desc.m_channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
-        auto width  = static_cast<GLint>(desc.m_width);
-        auto height = static_cast<GLint>(desc.m_height);
+        auto format = desc.channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
+        auto width  = static_cast<GLint>(desc.width);
+        auto height = static_cast<GLint>(desc.height);
         glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data.data());
         glGenerateMipmap(GL_TEXTURE_2D);
 
@@ -412,8 +412,8 @@ private:
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
         m_imageSize = {
-            .m_x = static_cast<int>(desc.m_width),
-            .m_y = static_cast<int>(desc.m_height),
+            .m_x = static_cast<int>(desc.width),
+            .m_y = static_cast<int>(desc.height),
         };
     }
 
@@ -545,7 +545,7 @@ std::optional<Inputs> getQoiFiles(std::span<const fs::path> inputs)
     auto& [files, start] = result.value();
 
     auto isQoi = [](const fs::path& path) {
-        return fs::is_regular_file(path) and qoipp::readHeaderFromFile(path).has_value();
+        return fs::is_regular_file(path) and qoipp::read_header_from_file(path).has_value();
     };
 
     if (inputs.size() == 1) {
@@ -622,14 +622,14 @@ int main(int argc, char** argv)
     auto* monitor = glfwGetPrimaryMonitor();
     auto* mode    = glfwGetVideoMode(monitor);
 
-    auto header = qoipp::readHeaderFromFile(inputs->m_files[inputs->m_start]).value();
+    auto header = qoipp::read_header_from_file(inputs->m_files[inputs->m_start]).value();
 
     auto width  = 0;
     auto height = 0;
 
-    if (static_cast<int>(header.m_height) > mode->height or static_cast<int>(header.m_width) > mode->width) {
+    if (static_cast<int>(header.height) > mode->height or static_cast<int>(header.width) > mode->width) {
         auto monitorRatio = static_cast<float>(mode->width) / static_cast<float>(mode->height);
-        auto imageRatio   = static_cast<float>(header.m_width) / static_cast<float>(header.m_height);
+        auto imageRatio   = static_cast<float>(header.width) / static_cast<float>(header.height);
 
         if (monitorRatio > imageRatio) {
             width  = static_cast<int>(static_cast<float>(mode->height) * imageRatio);
@@ -639,8 +639,8 @@ int main(int argc, char** argv)
             height = static_cast<int>(static_cast<float>(mode->width) / imageRatio);
         }
     } else {
-        width  = static_cast<int>(header.m_width);
-        height = static_cast<int>(header.m_height);
+        width  = static_cast<int>(header.width);
+        height = static_cast<int>(header.height);
     }
 
     auto* window = glfwCreateWindow(width, height, "QoiView", nullptr, nullptr);

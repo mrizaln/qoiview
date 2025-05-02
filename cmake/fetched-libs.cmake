@@ -8,7 +8,7 @@ include(FetchContent)
 FetchContent_Declare(
     qoipp
     GIT_REPOSITORY https://github.com/mrizaln/qoipp
-    GIT_TAG ddd6a4b6bcb9
+    GIT_TAG v0.1.0
 )
 FetchContent_MakeAvailable(qoipp)
 

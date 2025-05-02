@@ -16,7 +16,10 @@ include(cmake/fetched-libs.cmake)
 
 add_executable(qoiview source/main.cpp)
 target_include_directories(qoiview PRIVATE source)
-target_link_libraries(qoiview PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp)
+target_link_libraries(
+    qoiview
+    PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp
+)
 
 if(MSVC)
     target_compile_options(qoiview PRIVATE /W4 /WX)
