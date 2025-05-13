@@ -385,7 +385,12 @@ private:
     {
         const auto& file = currentFile();
         assert(fs::exists(file) and fs::is_regular_file(file));
-        auto [data, desc] = qoipp::decode_from_file(file, qoipp::Channels::RGBA, true);
+        auto res = qoipp::decode_from_file(file, qoipp::Channels::RGBA, true);
+        if (not res) {
+            fmt::println(stderr, "Failed to decode file {}", file.c_str());
+            return;
+        }
+        auto [data, desc] = std::move(res).value();
 
         if (m_texture != 0) {
             glDeleteTextures(1, &m_texture);
@@ -545,7 +550,7 @@ std::optional<Inputs> getQoiFiles(std::span<const fs::path> inputs)
     auto& [files, start] = result.value();
 
     auto isQoi = [](const fs::path& path) {
-        return fs::is_regular_file(path) and qoipp::read_header_from_file(path).has_value();
+        return fs::is_regular_file(path) and qoipp::read_header(path).has_value();
     };
 
     if (inputs.size() == 1) {
@@ -592,11 +597,14 @@ std::optional<Inputs> getQoiFiles(std::span<const fs::path> inputs)
 }
 
 int main(int argc, char** argv)
-{
+try {
     auto app = CLI::App{ "QoiView - A simple qoi image viewer" };
 
-    auto files = std::vector<fs::path>{};
+    auto files  = std::vector<fs::path>{};
+    auto single = false;
+
     app.add_option("files", files, "Input qoi file or directory")->required()->check(CLI::ExistingPath);
+    app.add_flag("-s,--single", single, "Run in single file mode")->default_val(false);
 
     if (argc == 1) {
         fmt::print(stderr, "{}", app.help());
@@ -605,7 +613,22 @@ int main(int argc, char** argv)
 
     CLI11_PARSE(app, argc, argv);
 
-    auto inputs = getQoiFiles(files);
+    auto inputs = std::optional<Inputs>{};
+    if (single and files.size() != 1) {
+        fmt::println(stderr, "Single mode provided but multiple files included");
+        return 1;
+    } else if (single) {
+        auto path = files.front();
+        if (not qoipp::read_header(path).has_value()) {
+            fmt::println(stderr, "Not a valid qoi file '{}'", path.c_str());
+            return 1;
+        }
+        inputs = Inputs{ {}, 0 };
+        inputs->m_files.push_back(path);
+    } else {
+        inputs = getQoiFiles(files);
+    }
+
     if (not inputs.has_value()) {
         return 1;
     }
@@ -622,7 +645,7 @@ int main(int argc, char** argv)
     auto* monitor = glfwGetPrimaryMonitor();
     auto* mode    = glfwGetVideoMode(monitor);
 
-    auto header = qoipp::read_header_from_file(inputs->m_files[inputs->m_start]).value();
+    auto header = qoipp::read_header(inputs->m_files[inputs->m_start]).value();
 
     auto width  = 0;
     auto height = 0;
@@ -642,6 +665,9 @@ int main(int argc, char** argv)
         width  = static_cast<int>(header.width);
         height = static_cast<int>(header.height);
     }
+
+    width  = std::max(width, 100);
+    height = std::max(height, 100);
 
     auto* window = glfwCreateWindow(width, height, "QoiView", nullptr, nullptr);
     if (window == nullptr) {
@@ -663,4 +689,10 @@ int main(int argc, char** argv)
     view.run(width, height);
 
     glfwTerminate();
+} catch (const std::exception& e) {
+    fmt::println(stderr, "{}", e.what());
+    return 1;
+} catch (...) {
+    fmt::println(stderr, "Unknown error");
+    return 1;
 }
