@@ -2,13 +2,13 @@
 
 #include "common.hpp"
 
-#include <cassert>
-#include <qoipp.hpp>
+#include <qoipp/simple.hpp>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <fmt/core.h>
 #include <glad/glad.h>
 
+#include <cassert>
 #include <vector>
 
 namespace qoiview

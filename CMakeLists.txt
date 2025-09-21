@@ -26,7 +26,7 @@ if(MSVC)
 else()
     target_compile_options(qoiview PRIVATE -Wall -Wextra -Wconversion)
 
-    # sanitizer
-    target_compile_options(qoiview PRIVATE -fsanitize=address,leak,undefined)
-    target_link_options(qoiview PRIVATE -fsanitize=address,leak,undefined)
+    # # sanitizer
+    # target_compile_options(qoiview PRIVATE -fsanitize=address,leak,undefined)
+    # target_link_options(qoiview PRIVATE -fsanitize=address,leak,undefined)
 endif()
