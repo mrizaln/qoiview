@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.16)
-project(qoiview VERSION 0.0.0)
+project(qoiview VERSION 0.1.0)
 
 include(cmake/prelude.cmake)
 
@@ -15,10 +15,14 @@ find_package(CLI11 REQUIRED)
 include(cmake/fetched-libs.cmake)
 
 add_executable(qoiview source/main.cpp source/qoiview.cpp)
-target_include_directories(qoiview PRIVATE source)
+target_include_directories(qoiview PUBLIC include)
 target_link_libraries(
     qoiview
     PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp
+)
+target_compile_definitions(
+    qoiview
+    PUBLIC QOIVIEW_VERSION_STRING="${CMAKE_PROJECT_VERSION}"
 )
 
 if(MSVC)
