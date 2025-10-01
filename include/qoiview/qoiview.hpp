@@ -15,15 +15,15 @@ namespace qoiview
 {
     struct Inputs
     {
-        std::vector<fs::path> m_files;
-        std::size_t           m_start;
+        std::vector<fs::path> files;
+        std::size_t           start;
     };
 
     template <typename T = float>
     struct Vec2
     {
-        T m_x;
-        T m_y;
+        T x;
+        T y;
     };
 
     enum class Movement
@@ -64,41 +64,41 @@ namespace qoiview
 
         void run(int width, int height);
 
-        const fs::path& currentFile() const { return m_files[m_index]; }
+        const fs::path& current_file() const { return m_files[m_index]; }
 
     private:
-        static void errorCallback(int error, const char* description);
-        static void framebufferSizeCallback(GLFWwindow* window, int width, int height);
-        static void keyCallback(GLFWwindow* window, int key, int, int action, int);
-        static void cursorCallback(GLFWwindow* window, double xpos, double ypos);
-        static void mouseButtonCallback(GLFWwindow* window, int button, int action, int);
-        static void scrollCallback(GLFWwindow* window, double, double yoffset);
+        static void callback_error(int error, const char* description);
+        static void callback_framebuffer_size(GLFWwindow* window, int width, int height);
+        static void callback_key(GLFWwindow* window, int key, int, int action, int);
+        static void callback_cursor(GLFWwindow* window, double xpos, double ypos);
+        static void callback_mouse_button(GLFWwindow* window, int button, int action, int);
+        static void callback_scroll(GLFWwindow* window, double, double yoffset);
 
-        void updateAspect(int width, int height);
-        void updateZoom(Zoom zoom);
-        void updateOffset(Movement movement);
-        void incrementOffset(Vec2<> offset);
-        void toggleFullscreen();
-        void toggleFiltering();
-        void toggleMipmap();
-        void nextFile();
-        void previousFile();
-        void resetZoom();
-        void resetOffset();
-        void updateTitle();
-        void prepareRect();
-        void prepareShader();
-        void prepareTexture();
-        void updateFiltering(Filter filter, bool mipmap);
-        void applyUniform(Uniform uniform);
+        void update_aspect(int width, int height);
+        void update_zoom(Zoom zoom);
+        void update_offset(Movement movement);
+        void increment_offset(Vec2<> offset);
+        void toggle_fullscreen();
+        void toggle_filtering();
+        void toggle_mipmap();
+        void file_next();
+        void file_previous();
+        void reset_zoom();
+        void reset_offset();
+        void update_title();
+        void prepare_rect();
+        void prepare_shader();
+        void prepare_texture();
+        void update_filtering(Filter filter, bool mipmap);
+        void apply_uniform(Uniform uniform);
 
-        Vec2<> m_offset       = { 0.0f, 0.0f };
-        Vec2<> m_aspect       = { 1.0f, 1.0f };
-        Vec2<> m_mouse        = { 0.0f, 0.0f };
-        float  m_zoom         = 1.0f;    // relative to window size
-        Filter m_filter       = Filter::Linear;
-        bool   m_mipmap       = true;
-        bool   m_mousePressed = false;
+        Vec2<> m_offset      = { 0.0f, 0.0f };
+        Vec2<> m_aspect      = { 1.0f, 1.0f };
+        Vec2<> m_mouse       = { 0.0f, 0.0f };
+        float  m_zoom        = 1.0f;    // relative to window size
+        Filter m_filter      = Filter::Linear;
+        bool   m_mipmap      = true;
+        bool   m_mouse_press = false;
 
         GLFWwindow*        m_window;
         GLFWmonitor*       m_monitor;
@@ -113,10 +113,10 @@ namespace qoiview
         std::span<const fs::path> m_files;
         std::size_t               m_index;
 
-        Vec2<int> m_imageSize;
-        Vec2<int> m_windowPos;
-        Vec2<int> m_windowSize;
+        Vec2<int> m_image_size;
+        Vec2<int> m_window_pos;
+        Vec2<int> m_window_size;
     };
 
-    std::optional<Inputs> getQoiFiles(std::span<const fs::path> inputs);
+    std::optional<Inputs> get_qoi_files(std::span<const fs::path> inputs);
 }

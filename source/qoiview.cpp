@@ -1,41 +1,41 @@
-#include "qoiview.hpp"
+#include "qoiview/qoiview.hpp"
 
 namespace
 {
-    constexpr auto vertexShader = R"glsl(
-    #version 300 es
+    constexpr auto vertex_shader = R"glsl(
+        #version 300 es
 
-    layout(location = 0) in vec2 position;
-    layout(location = 1) in vec2 texcoord;
+        layout(location = 0) in vec2 position;
+        layout(location = 1) in vec2 texcoord;
 
-    out vec2 v_texcoord;
+        out vec2 v_texcoord;
 
-    uniform vec2 offset;
-    uniform vec2 aspect;
-    uniform float zoom;
+        uniform vec2 offset;
+        uniform vec2 aspect;
+        uniform float zoom;
 
-    void main()
-    {
-        gl_Position = vec4((position - offset) * aspect * zoom , 0.0, 1.0);
-        v_texcoord = texcoord;
-    }
-)glsl";
+        void main()
+        {
+            gl_Position = vec4((position - offset) * aspect * zoom , 0.0, 1.0);
+            v_texcoord = texcoord;
+        }
+    )glsl";
 
-    constexpr auto fragmentShader = R"glsl(
-    #version 300 es
+    constexpr auto fragment_shader = R"glsl(
+        #version 300 es
 
-    precision mediump float;
+        precision mediump float;
 
-    in vec2 v_texcoord;
-    out vec4 fragColor;
+        in vec2 v_texcoord;
+        out vec4 fragcolor;
 
-    uniform sampler2D tex;
+        uniform sampler2D tex;
 
-    void main()
-    {
-        fragColor = texture(tex, v_texcoord);
-    }
-)glsl";
+        void main()
+        {
+            fragcolor = texture(tex, v_texcoord);
+        }
+    )glsl";
 
     constexpr auto vertices = std::array{
         -1.0f, 1.0f,  0.0f, 1.0f,    // top-left
@@ -60,15 +60,15 @@ namespace qoiview
     {
         glfwSetWindowUserPointer(m_window, this);
 
-        glfwSetFramebufferSizeCallback(window, framebufferSizeCallback);
-        glfwSetKeyCallback(window, keyCallback);
-        glfwSetCursorPosCallback(window, cursorCallback);
-        glfwSetMouseButtonCallback(window, mouseButtonCallback);
-        glfwSetScrollCallback(window, scrollCallback);
+        glfwSetFramebufferSizeCallback(window, callback_framebuffer_size);
+        glfwSetKeyCallback(window, callback_key);
+        glfwSetCursorPosCallback(window, callback_cursor);
+        glfwSetMouseButtonCallback(window, callback_mouse_button);
+        glfwSetScrollCallback(window, callback_scroll);
 
-        prepareRect();
-        prepareShader();
-        prepareTexture();
+        prepare_rect();
+        prepare_shader();
+        prepare_texture();
 
         m_monitor = glfwGetPrimaryMonitor();
         m_mode    = glfwGetVideoMode(m_monitor);
@@ -83,19 +83,19 @@ namespace qoiview
         glDeleteBuffers(1, &m_vbo);
     }
 
-    void QoiView::errorCallback(int error, const char* description)
+    void QoiView::callback_error(int error, const char* description)
     {
         fmt::println(stderr, "GLFW Error [{:#010x}]: {}", error, description);
     }
 
-    void QoiView::framebufferSizeCallback(GLFWwindow* window, int width, int height)
+    void QoiView::callback_framebuffer_size(GLFWwindow* window, int width, int height)
     {
         auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
         glViewport(0, 0, width, height);
-        view.updateAspect(width, height);
+        view.update_aspect(width, height);
     }
 
-    void QoiView::keyCallback(GLFWwindow* window, int key, int, int action, int)
+    void QoiView::callback_key(GLFWwindow* window, int key, int, int action, int)
     {
         auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
         if (action == GLFW_RELEASE) {
@@ -105,58 +105,58 @@ namespace qoiview
         switch (key) {
         case GLFW_KEY_ESCAPE:
         case GLFW_KEY_Q: glfwSetWindowShouldClose(window, GLFW_TRUE); break;
-        case GLFW_KEY_H: view.updateOffset(Movement::Left); break;
-        case GLFW_KEY_L: view.updateOffset(Movement::Right); break;
-        case GLFW_KEY_J: view.updateOffset(Movement::Down); break;
-        case GLFW_KEY_K: view.updateOffset(Movement::Up); break;
-        case GLFW_KEY_I: view.updateZoom(Zoom::In); break;
-        case GLFW_KEY_O: view.updateZoom(Zoom::Out); break;
-        case GLFW_KEY_F: view.toggleFullscreen(); break;
-        case GLFW_KEY_N: view.toggleFiltering(); break;
-        case GLFW_KEY_M: view.toggleMipmap(); break;
-        case GLFW_KEY_R: (view.resetZoom(), view.resetOffset()); break;
-        case GLFW_KEY_P: fmt::println("{}", view.currentFile().c_str()); break;
-        case GLFW_KEY_UP: view.updateZoom(Zoom::In); break;
-        case GLFW_KEY_DOWN: view.updateZoom(Zoom::Out); break;
-        case GLFW_KEY_RIGHT: view.nextFile(); break;
-        case GLFW_KEY_LEFT: view.previousFile(); break;
+        case GLFW_KEY_H: view.update_offset(Movement::Left); break;
+        case GLFW_KEY_L: view.update_offset(Movement::Right); break;
+        case GLFW_KEY_J: view.update_offset(Movement::Down); break;
+        case GLFW_KEY_K: view.update_offset(Movement::Up); break;
+        case GLFW_KEY_I: view.update_zoom(Zoom::In); break;
+        case GLFW_KEY_O: view.update_zoom(Zoom::Out); break;
+        case GLFW_KEY_F: view.toggle_fullscreen(); break;
+        case GLFW_KEY_N: view.toggle_filtering(); break;
+        case GLFW_KEY_M: view.toggle_mipmap(); break;
+        case GLFW_KEY_R: (view.reset_zoom(), view.reset_offset()); break;
+        case GLFW_KEY_P: fmt::println("{}", view.current_file().c_str()); break;
+        case GLFW_KEY_UP: view.update_zoom(Zoom::In); break;
+        case GLFW_KEY_DOWN: view.update_zoom(Zoom::Out); break;
+        case GLFW_KEY_RIGHT: view.file_next(); break;
+        case GLFW_KEY_LEFT: view.file_previous(); break;
         }
     }
 
-    void QoiView::cursorCallback(GLFWwindow* window, double xpos, double ypos)
+    void QoiView::callback_cursor(GLFWwindow* window, double xpos, double ypos)
     {
         auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
 
         auto x = static_cast<float>(xpos);
         auto y = static_cast<float>(ypos);
 
-        if (view.m_mousePressed) {
+        if (view.m_mouse_press) {
             int width, height;
             glfwGetWindowSize(window, &width, &height);
 
-            auto dx = (x - view.m_mouse.m_x) / static_cast<float>(width);
-            auto dy = (view.m_mouse.m_y - y) / static_cast<float>(height);
-            view.incrementOffset({ dx, dy });
+            auto dx = (x - view.m_mouse.x) / static_cast<float>(width);
+            auto dy = (view.m_mouse.y - y) / static_cast<float>(height);
+            view.increment_offset({ dx, dy });
         }
 
         view.m_mouse = { x, y };
     }
 
-    void QoiView::mouseButtonCallback(GLFWwindow* window, int button, int action, int)
+    void QoiView::callback_mouse_button(GLFWwindow* window, int button, int action, int)
     {
         auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
         if (button == GLFW_MOUSE_BUTTON_LEFT) {
-            view.m_mousePressed = action == GLFW_PRESS;
+            view.m_mouse_press = action == GLFW_PRESS;
         }
     }
 
-    void QoiView::scrollCallback(GLFWwindow* window, double, double yoffset)
+    void QoiView::callback_scroll(GLFWwindow* window, double, double yoffset)
     {
         auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
         if (yoffset > 0) {
-            view.updateZoom(Zoom::In);
+            view.update_zoom(Zoom::In);
         } else {
-            view.updateZoom(Zoom::Out);
+            view.update_zoom(Zoom::Out);
         }
     }
 
@@ -171,10 +171,10 @@ namespace qoiview
         glClearColor(0.13f, 0.14f, 0.21f, 1.0f);
 
         glViewport(0, 0, width, height);
-        updateAspect(width, height);
+        update_aspect(width, height);
 
-        applyUniform(Uniform::Zoom);
-        applyUniform(Uniform::Offset);
+        apply_uniform(Uniform::Zoom);
+        apply_uniform(Uniform::Offset);
 
         glfwSwapInterval(0);
 
@@ -187,24 +187,24 @@ namespace qoiview
         }
     }
 
-    void QoiView::updateAspect(int width, int height)
+    void QoiView::update_aspect(int width, int height)
     {
-        auto imageRatio  = static_cast<float>(m_imageSize.m_x) / static_cast<float>(m_imageSize.m_y);
-        auto windowRatio = static_cast<float>(width) / static_cast<float>(height);
+        auto image_ratio  = static_cast<float>(m_image_size.x) / static_cast<float>(m_image_size.y);
+        auto window_ratio = static_cast<float>(width) / static_cast<float>(height);
 
-        if (imageRatio > windowRatio) {
-            m_aspect.m_x = 1.0f;
-            m_aspect.m_y = windowRatio / imageRatio;
+        if (image_ratio > window_ratio) {
+            m_aspect.x = 1.0f;
+            m_aspect.y = window_ratio / image_ratio;
         } else {
-            m_aspect.m_x = imageRatio / windowRatio;
-            m_aspect.m_y = 1.0f;
+            m_aspect.x = image_ratio / window_ratio;
+            m_aspect.y = 1.0f;
         }
 
-        applyUniform(Uniform::Aspect);
-        updateTitle();
+        apply_uniform(Uniform::Aspect);
+        update_title();
     }
 
-    void QoiView::updateZoom(Zoom zoom)
+    void QoiView::update_zoom(Zoom zoom)
     {
         if (zoom == Zoom::In) {
             m_zoom *= 1.1f;
@@ -212,123 +212,123 @@ namespace qoiview
             m_zoom /= 1.1f;
         }
 
-        applyUniform(Uniform::Zoom);
-        updateTitle();
+        apply_uniform(Uniform::Zoom);
+        update_title();
     }
 
-    void QoiView::updateOffset(Movement movement)
+    void QoiView::update_offset(Movement movement)
     {
         switch (movement) {
-        case Movement::Up: m_offset.m_y += 0.1f / m_zoom; break;
-        case Movement::Down: m_offset.m_y -= 0.1f / m_zoom; break;
-        case Movement::Left: m_offset.m_x -= 0.1f / m_zoom; break;
-        case Movement::Right: m_offset.m_x += 0.1f / m_zoom; break;
+        case Movement::Up: m_offset.y += 0.1f / m_zoom; break;
+        case Movement::Down: m_offset.y -= 0.1f / m_zoom; break;
+        case Movement::Left: m_offset.x -= 0.1f / m_zoom; break;
+        case Movement::Right: m_offset.x += 0.1f / m_zoom; break;
         }
 
-        applyUniform(Uniform::Offset);
+        apply_uniform(Uniform::Offset);
     }
 
-    void QoiView::incrementOffset(Vec2<> offset)
+    void QoiView::increment_offset(Vec2<> offset)
     {
-        m_offset.m_x -= offset.m_x / m_aspect.m_x / m_zoom * 2.0f;
-        m_offset.m_y -= offset.m_y / m_aspect.m_y / m_zoom * 2.0f;
-        applyUniform(Uniform::Offset);
+        m_offset.x -= offset.x / m_aspect.x / m_zoom * 2.0f;
+        m_offset.y -= offset.y / m_aspect.y / m_zoom * 2.0f;
+        apply_uniform(Uniform::Offset);
     }
 
-    void QoiView::toggleFullscreen()
+    void QoiView::toggle_fullscreen()
     {
         if (glfwGetWindowMonitor(m_window) != nullptr) {
-            auto [xpos, ypos]    = m_windowPos;
-            auto [width, height] = m_windowSize;
+            auto [xpos, ypos]    = m_window_pos;
+            auto [width, height] = m_window_size;
             glfwSetWindowMonitor(m_window, nullptr, xpos, ypos, width, height, GLFW_DONT_CARE);
         } else {
-            glfwGetWindowPos(m_window, &m_windowPos.m_x, &m_windowPos.m_y);
-            glfwGetWindowSize(m_window, &m_windowSize.m_x, &m_windowSize.m_y);
+            glfwGetWindowPos(m_window, &m_window_pos.x, &m_window_pos.y);
+            glfwGetWindowSize(m_window, &m_window_size.x, &m_window_size.y);
 
             const auto& mode = *m_mode;
             glfwSetWindowMonitor(m_window, m_monitor, 0, 0, mode.width, mode.height, mode.refreshRate);
         }
     }
 
-    void QoiView::toggleFiltering()
+    void QoiView::toggle_filtering()
     {
         auto count  = static_cast<int>(Filter::count);
         auto filter = static_cast<Filter>((static_cast<int>(m_filter) + 1) % count);
-        updateFiltering(filter, m_mipmap);
-        updateTitle();
+        update_filtering(filter, m_mipmap);
+        update_title();
     }
 
-    void QoiView::toggleMipmap()
+    void QoiView::toggle_mipmap()
     {
-        updateFiltering(m_filter, not m_mipmap);
-        updateTitle();
+        update_filtering(m_filter, not m_mipmap);
+        update_title();
     }
 
-    void QoiView::nextFile()
+    void QoiView::file_next()
     {
         if (m_files.size() == 1) {
             return;
         }
 
         m_index = (m_index + 1) % m_files.size();
-        prepareTexture();
+        prepare_texture();
 
         int width, height;
         glfwGetWindowSize(m_window, &width, &height);
-        updateAspect(width, height);
+        update_aspect(width, height);
     }
 
-    void QoiView::previousFile()
+    void QoiView::file_previous()
     {
         if (m_files.size() == 1) {
             return;
         }
 
         m_index = (m_index - 1) % m_files.size();
-        prepareTexture();
+        prepare_texture();
 
         int width, height;
         glfwGetWindowSize(m_window, &width, &height);
-        updateAspect(width, height);
+        update_aspect(width, height);
     }
 
-    void QoiView::resetZoom()
+    void QoiView::reset_zoom()
     {
         m_zoom = 1.0f;
-        applyUniform(Uniform::Zoom);
-        updateTitle();
+        apply_uniform(Uniform::Zoom);
+        update_title();
     }
 
-    void QoiView::resetOffset()
+    void QoiView::reset_offset()
     {
         m_offset = { 0.0f, 0.0f };
-        applyUniform(Uniform::Offset);
+        apply_uniform(Uniform::Offset);
     }
 
-    void QoiView::updateTitle()
+    void QoiView::update_title()
     {
         int width, height;
         glfwGetWindowSize(m_window, &width, &height);
 
-        auto windowScale = static_cast<float>(width) / static_cast<float>(m_mode->width);
-        auto imageScale  = static_cast<float>(m_imageSize.m_x) / static_cast<float>(m_mode->width);
-        auto zoom        = static_cast<int>(m_zoom * 100.0f * windowScale / imageScale * m_aspect.m_x);
+        auto window_scale = static_cast<float>(width) / static_cast<float>(m_mode->width);
+        auto image_scale  = static_cast<float>(m_image_size.x) / static_cast<float>(m_mode->width);
+        auto zoom         = static_cast<int>(m_zoom * 100.0f * window_scale / image_scale * m_aspect.x);
 
         auto title = fmt::format(
             "[{}/{}] [{}x{}] [{}%] QoiView - {} [filter:{}|mipmap:{}]",
             m_index + 1,
             m_files.size(),
-            m_imageSize.m_x,
-            m_imageSize.m_y,
+            m_image_size.x,
+            m_image_size.y,
             zoom,
-            currentFile().filename().string(),
+            current_file().filename().string(),
             m_filter == Filter::Linear ? "linear" : "nearest",
             m_mipmap ? "yes" : "no"
         );
         glfwSetWindowTitle(m_window, title.c_str());
     }
 
-    void QoiView::prepareRect()
+    void QoiView::prepare_rect()
     {
         glGenVertexArrays(1, &m_vao);
         glBindVertexArray(m_vao);
@@ -350,13 +350,13 @@ namespace qoiview
         glBindVertexArray(0);
     }
 
-    void QoiView::prepareShader()
+    void QoiView::prepare_shader()
     {
         auto buf     = std::array<char, 1024>{};
         auto success = GLint{};
 
         auto vert = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vert, 1, &vertexShader, nullptr);
+        glShaderSource(vert, 1, &vertex_shader, nullptr);
         glCompileShader(vert);
         glGetShaderiv(vert, GL_COMPILE_STATUS, &success);
 
@@ -368,7 +368,7 @@ namespace qoiview
         }
 
         auto frag = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(frag, 1, &fragmentShader, nullptr);
+        glShaderSource(frag, 1, &fragment_shader, nullptr);
         glCompileShader(frag);
         glGetShaderiv(frag, GL_COMPILE_STATUS, &success);
 
@@ -396,9 +396,9 @@ namespace qoiview
         glDeleteShader(frag);
     }
 
-    void QoiView::prepareTexture()
+    void QoiView::prepare_texture()
     {
-        const auto& file = currentFile();
+        const auto& file = current_file();
         assert(fs::exists(file) and fs::is_regular_file(file));
         auto res = qoipp::decode(file, qoipp::Channels::RGBA, true);
         if (not res) {
@@ -426,18 +426,18 @@ namespace qoiview
         glGenerateMipmap(GL_TEXTURE_2D);
 
         glUseProgram(m_program);
-        applyUniform(Uniform::Tex);
+        apply_uniform(Uniform::Tex);
 
         glActiveTexture(GL_TEXTURE0);
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
-        m_imageSize = {
-            .m_x = static_cast<int>(desc.width),
-            .m_y = static_cast<int>(desc.height),
+        m_image_size = {
+            .x = static_cast<int>(desc.width),
+            .y = static_cast<int>(desc.height),
         };
     }
 
-    void QoiView::updateFiltering(Filter filter, bool mipmap)
+    void QoiView::update_filtering(Filter filter, bool mipmap)
     {
         m_filter = filter;
         m_mipmap = mipmap;
@@ -453,23 +453,23 @@ namespace qoiview
         }
     }
 
-    void QoiView::applyUniform(Uniform uniform)
+    void QoiView::apply_uniform(Uniform uniform)
     {
         auto loc = [this](const char* name) { return glGetUniformLocation(m_program, name); };
         switch (uniform) {
         case Uniform::Zoom: glUniform1f(loc("zoom"), m_zoom); break;
-        case Uniform::Offset: glUniform2f(loc("offset"), m_offset.m_x, m_offset.m_y); break;
-        case Uniform::Aspect: glUniform2f(loc("aspect"), m_aspect.m_x, m_aspect.m_y); break;
+        case Uniform::Offset: glUniform2f(loc("offset"), m_offset.x, m_offset.y); break;
+        case Uniform::Aspect: glUniform2f(loc("aspect"), m_aspect.x, m_aspect.y); break;
         case Uniform::Tex: glUniform1i(loc("tex"), 0); break;
         }
     }
 
-    std::optional<Inputs> getQoiFiles(std::span<const fs::path> inputs)
+    std::optional<Inputs> get_qoi_files(std::span<const fs::path> inputs)
     {
         auto result          = std::optional<Inputs>{ std::in_place, std::vector<fs::path>{}, 0 };
         auto& [files, start] = result.value();
 
-        auto isQoi = [](const fs::path& path) {
+        auto is_qoi = [](const fs::path& path) {
             return fs::is_regular_file(path) and qoipp::read_header(path).has_value();
         };
 
@@ -480,7 +480,7 @@ namespace qoiview
                 fmt::println(stderr, "No such file or directory '{}'", input.c_str());
                 return {};
             } else if (fs::is_directory(input)) {
-                for (auto file : fs::directory_iterator(input) | sv::filter(isQoi)) {
+                for (auto file : fs::directory_iterator(input) | sv::filter(is_qoi)) {
                     files.push_back(file);
                 }
                 if (files.empty()) {
@@ -488,13 +488,13 @@ namespace qoiview
                     return {};
                 }
             } else if (fs::is_regular_file(input)) {
-                if (isQoi(input)) {
+                if (is_qoi(input)) {
                     auto parent = fs::directory_iterator{ fs::canonical(input).parent_path() };
-                    for (auto input : parent | sv::filter(isQoi)) {
+                    for (auto input : parent | sv::filter(is_qoi)) {
                         files.push_back(input);
                     }
-                    auto isInput = [&](const fs::path& path) { return fs::equivalent(path, input); };
-                    start        = static_cast<std::size_t>(sr::find_if(files, isInput) - files.begin());
+                    auto is_input = [&](const fs::path& path) { return fs::equivalent(path, input); };
+                    start         = static_cast<std::size_t>(sr::find_if(files, is_input) - files.begin());
                 } else {
                     fmt::println(stderr, "Not a valid qoi file '{}'", input.c_str());
                     return {};
@@ -504,7 +504,7 @@ namespace qoiview
                 return {};
             }
         } else {
-            for (auto input : inputs | sv::filter(isQoi)) {
+            for (auto input : inputs | sv::filter(is_qoi)) {
                 files.push_back(input);
             }
             if (files.empty()) {
