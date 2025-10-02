@@ -1,6 +1,7 @@
 #include "qoiview/qoiview.hpp"
 
 #include <CLI/CLI.hpp>
+#include <glbinding/glbinding.h>
 #include <qoipp/simple.hpp>
 
 #include <algorithm>
@@ -83,7 +84,7 @@ try {
     width  = std::max(width, 100);
     height = std::max(height, 100);
 
-    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GL_TRUE);
+    glfwWindowHint(GLFW_OPENGL_DEBUG_CONTEXT, GLFW_TRUE);
 
     auto* window = glfwCreateWindow(width, height, "QoiView", nullptr, nullptr);
     if (window == nullptr) {
@@ -93,7 +94,7 @@ try {
     }
 
     glfwMakeContextCurrent(window);
-    gladLoadGLLoader((GLADloadproc)glfwGetProcAddress);
+    glbinding::initialize(glfwGetProcAddress);
 
     auto view = qoiview::QoiView{ window, inputs->files, inputs->start };
     view.run(width, height);

@@ -9,16 +9,28 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(fmt REQUIRED)
 find_package(glfw3 REQUIRED)
-find_package(glad REQUIRED)
+find_package(glbinding REQUIRED)
+find_package(khrplatform REQUIRED)
 find_package(CLI11 REQUIRED)
 
 include(cmake/fetched-libs.cmake)
 
-add_executable(qoiview source/main.cpp source/qoiview.cpp source/async_decoder.cpp)
+add_executable(
+    qoiview
+    source/main.cpp
+    source/qoiview.cpp
+    source/async_decoder.cpp
+)
 target_include_directories(qoiview PUBLIC include)
 target_link_libraries(
     qoiview
-    PRIVATE fmt::fmt glfw glad::glad CLI11::CLI11 fetch::qoipp
+    PRIVATE
+        fmt::fmt
+        glfw
+        glbinding::glbinding
+        khrplatform::khrplatform
+        CLI11::CLI11
+        fetch::qoipp
 )
 target_compile_definitions(
     qoiview

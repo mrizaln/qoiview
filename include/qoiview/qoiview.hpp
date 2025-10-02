@@ -5,7 +5,7 @@
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <fmt/core.h>
-#include <glad/glad.h>
+#include <glbinding/gl/types.h>
 
 #include <cassert>
 #include <deque>
@@ -104,11 +104,11 @@ namespace qoiview
         GLFWmonitor*       m_monitor;
         const GLFWvidmode* m_mode;
 
-        GLuint m_vbo;
-        GLuint m_vao;
-        GLuint m_ebo;
-        GLuint m_program;
-        GLuint m_texture;
+        gl::GLuint m_vbo;
+        gl::GLuint m_vao;
+        gl::GLuint m_ebo;
+        gl::GLuint m_program;
+        gl::GLuint m_texture;
 
         std::deque<fs::path> m_files;
         std::size_t          m_index;

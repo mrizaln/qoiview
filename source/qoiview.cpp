@@ -1,5 +1,7 @@
 #include "qoiview/qoiview.hpp"
 
+#include <glbinding/gl/gl.h>
+
 namespace
 {
     constexpr auto vertex_shader = R"glsl(
@@ -89,11 +91,11 @@ namespace qoiview
 
     QoiView::~QoiView()
     {
-        glDeleteTextures(1, &m_texture);
-        glDeleteProgram(m_program);
-        glDeleteBuffers(1, &m_ebo);
-        glDeleteVertexArrays(1, &m_vao);
-        glDeleteBuffers(1, &m_vbo);
+        gl::glDeleteTextures(1, &m_texture);
+        gl::glDeleteProgram(m_program);
+        gl::glDeleteBuffers(1, &m_ebo);
+        gl::glDeleteVertexArrays(1, &m_vao);
+        gl::glDeleteBuffers(1, &m_vbo);
     }
 
     void QoiView::callback_error(int error, const char* description)
@@ -104,7 +106,7 @@ namespace qoiview
     void QoiView::callback_framebuffer_size(GLFWwindow* window, int width, int height)
     {
         auto& view = *static_cast<QoiView*>(glfwGetWindowUserPointer(window));
-        glViewport(0, 0, width, height);
+        gl::glViewport(0, 0, width, height);
         view.update_aspect(width, height);
     }
 
@@ -175,15 +177,15 @@ namespace qoiview
 
     void QoiView::run(int width, int height)
     {
-        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-        glEnable(GL_BLEND);
+        gl::glBlendFunc(gl::GL_SRC_ALPHA, gl::GL_ONE_MINUS_SRC_ALPHA);
+        gl::glEnable(gl::GL_BLEND);
 
-        glUseProgram(m_program);
+        gl::glUseProgram(m_program);
 
-        glBindVertexArray(m_vao);
-        glClearColor(0.13f, 0.14f, 0.21f, 1.0f);
+        gl::glBindVertexArray(m_vao);
+        gl::glClearColor(0.13f, 0.14f, 0.21f, 1.0f);
 
-        glViewport(0, 0, width, height);
+        gl::glViewport(0, 0, width, height);
         update_aspect(width, height);
 
         apply_uniform(Uniform::Zoom);
@@ -192,28 +194,28 @@ namespace qoiview
         glfwSwapInterval(1);
 
         while (not glfwWindowShouldClose(m_window)) {
-            glBindTexture(GL_TEXTURE_2D, m_texture);
+            gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
 
             if (auto work = m_decoder.get(); work) {
                 auto desc   = m_decoder.current()->desc;
-                auto format = desc.channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
+                auto format = desc.channels == qoipp::Channels::RGB ? gl::GL_RGB : gl::GL_RGBA;
 
-                glTexSubImage2D(
-                    GL_TEXTURE_2D,
+                gl::glTexSubImage2D(
+                    gl::GL_TEXTURE_2D,
                     0,
                     0,
                     work->start,
                     desc.width,
                     work->count,
                     format,
-                    GL_UNSIGNED_BYTE,
+                    gl::GL_UNSIGNED_BYTE,
                     work->data.data()
                 );
-                glGenerateMipmap(GL_TEXTURE_2D);
+                gl::glGenerateMipmap(gl::GL_TEXTURE_2D);
             }
 
-            glClear(GL_COLOR_BUFFER_BIT);
-            glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, nullptr);
+            gl::glClear(gl::GL_COLOR_BUFFER_BIT);
+            gl::glDrawElements(gl::GL_TRIANGLES, indices.size(), gl::GL_UNSIGNED_INT, nullptr);
 
             glfwSwapBuffers(m_window);
             glfwPollEvents();
@@ -377,70 +379,72 @@ namespace qoiview
 
     void QoiView::prepare_rect()
     {
-        glGenVertexArrays(1, &m_vao);
-        glBindVertexArray(m_vao);
+        gl::glGenVertexArrays(1, &m_vao);
+        gl::glBindVertexArray(m_vao);
 
-        glGenBuffers(1, &m_vbo);
-        glBindBuffer(GL_ARRAY_BUFFER, m_vbo);
-        glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), GL_STATIC_DRAW);
+        gl::glGenBuffers(1, &m_vbo);
+        gl::glBindBuffer(gl::GL_ARRAY_BUFFER, m_vbo);
+        gl::glBufferData(gl::GL_ARRAY_BUFFER, sizeof(vertices), vertices.data(), gl::GL_STATIC_DRAW);
 
-        glGenBuffers(1, &m_ebo);
-        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, m_ebo);
-        glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices.data(), GL_STATIC_DRAW);
+        gl::glGenBuffers(1, &m_ebo);
+        gl::glBindBuffer(gl::GL_ELEMENT_ARRAY_BUFFER, m_ebo);
+        gl::glBufferData(gl::GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices.data(), gl::GL_STATIC_DRAW);
 
-        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)0);
-        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float)));
-        glEnableVertexAttribArray(0);
-        glEnableVertexAttribArray(1);
+        gl::glVertexAttribPointer(0, 2, gl::GL_FLOAT, gl::GL_FALSE, 4 * sizeof(float), (void*)0);
+        gl::glVertexAttribPointer(
+            1, 2, gl::GL_FLOAT, gl::GL_FALSE, 4 * sizeof(float), (void*)(2 * sizeof(float))
+        );
+        gl::glEnableVertexAttribArray(0);
+        gl::glEnableVertexAttribArray(1);
 
-        glBindBuffer(GL_ARRAY_BUFFER, 0);
-        glBindVertexArray(0);
+        gl::glBindBuffer(gl::GL_ARRAY_BUFFER, 0);
+        gl::glBindVertexArray(0);
     }
 
     void QoiView::prepare_shader()
     {
         auto buf     = std::array<char, 1024>{};
-        auto success = GLint{};
+        auto success = gl::GLint{};
 
-        auto vert = glCreateShader(GL_VERTEX_SHADER);
-        glShaderSource(vert, 1, &vertex_shader, nullptr);
-        glCompileShader(vert);
-        glGetShaderiv(vert, GL_COMPILE_STATUS, &success);
+        auto vert = gl::glCreateShader(gl::GL_VERTEX_SHADER);
+        gl::glShaderSource(vert, 1, &vertex_shader, nullptr);
+        gl::glCompileShader(vert);
+        gl::glGetShaderiv(vert, gl::GL_COMPILE_STATUS, &success);
 
-        if (success == GL_FALSE) {
-            glGetShaderInfoLog(vert, buf.size(), nullptr, buf.data());
+        if (success == false) {
+            gl::glGetShaderInfoLog(vert, buf.size(), nullptr, buf.data());
             fmt::println(stderr, "Failed to compile vertex shader: {}", buf.data());
             glfwTerminate();
             std::exit(1);
         }
 
-        auto frag = glCreateShader(GL_FRAGMENT_SHADER);
-        glShaderSource(frag, 1, &fragment_shader, nullptr);
-        glCompileShader(frag);
-        glGetShaderiv(frag, GL_COMPILE_STATUS, &success);
+        auto frag = gl::glCreateShader(gl::GL_FRAGMENT_SHADER);
+        gl::glShaderSource(frag, 1, &fragment_shader, nullptr);
+        gl::glCompileShader(frag);
+        gl::glGetShaderiv(frag, gl::GL_COMPILE_STATUS, &success);
 
-        if (success == GL_FALSE) {
-            glGetShaderInfoLog(frag, buf.size(), nullptr, buf.data());
+        if (success == false) {
+            gl::glGetShaderInfoLog(frag, buf.size(), nullptr, buf.data());
             fmt::println(stderr, "Failed to compile fragment shader: {}", buf.data());
             glfwTerminate();
             std::exit(1);
         }
 
-        m_program = glCreateProgram();
-        glAttachShader(m_program, vert);
-        glAttachShader(m_program, frag);
-        glLinkProgram(m_program);
-        glGetProgramiv(m_program, GL_LINK_STATUS, &success);
+        m_program = gl::glCreateProgram();
+        gl::glAttachShader(m_program, vert);
+        gl::glAttachShader(m_program, frag);
+        gl::glLinkProgram(m_program);
+        gl::glGetProgramiv(m_program, gl::GL_LINK_STATUS, &success);
 
-        if (success == GL_FALSE) {
-            glGetProgramInfoLog(m_program, buf.size(), nullptr, buf.data());
+        if (success == false) {
+            gl::glGetProgramInfoLog(m_program, buf.size(), nullptr, buf.data());
             fmt::println(stderr, "Failed to link shader program: {}", buf.data());
             glfwTerminate();
             std::exit(1);
         }
 
-        glDeleteShader(vert);
-        glDeleteShader(frag);
+        gl::glDeleteShader(vert);
+        gl::glDeleteShader(frag);
     }
 
     bool QoiView::prepare_texture()
@@ -456,30 +460,32 @@ namespace qoiview
         }
 
         if (m_texture != 0) {
-            glDeleteTextures(1, &m_texture);
+            gl::glDeleteTextures(1, &m_texture);
         }
 
-        glGenTextures(1, &m_texture);
-        glBindTexture(GL_TEXTURE_2D, m_texture);
+        gl::glGenTextures(1, &m_texture);
+        gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
 
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_CLAMP_TO_EDGE);
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_CLAMP_TO_EDGE);
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
+        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
 
-        auto format = desc->channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
-        auto width  = static_cast<GLint>(desc->width);
-        auto height = static_cast<GLint>(desc->height);
-        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, format, GL_UNSIGNED_BYTE, nullptr);
-        glGenerateMipmap(GL_TEXTURE_2D);
+        auto format = desc->channels == qoipp::Channels::RGB ? gl::GL_RGB : gl::GL_RGBA;
+        auto width  = static_cast<gl::GLint>(desc->width);
+        auto height = static_cast<gl::GLint>(desc->height);
+        gl::glTexImage2D(
+            gl::GL_TEXTURE_2D, 0, gl::GL_RGBA, width, height, 0, format, gl::GL_UNSIGNED_BYTE, nullptr
+        );
+        gl::glGenerateMipmap(gl::GL_TEXTURE_2D);
 
         // TODO: clear texture: https://stackoverflow.com/a/7196109
 
-        glUseProgram(m_program);
+        gl::glUseProgram(m_program);
         apply_uniform(Uniform::Tex);
 
-        glActiveTexture(GL_TEXTURE0);
-        glBindTexture(GL_TEXTURE_2D, m_texture);
+        gl::glActiveTexture(gl::GL_TEXTURE0);
+        gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
 
         m_image_size = {
             .x = static_cast<int>(desc->width),
@@ -495,24 +501,24 @@ namespace qoiview
         m_mipmap = mipmap;
 
         if (m_filter == Filter::Linear) {
-            auto min = m_mipmap ? GL_LINEAR_MIPMAP_LINEAR : GL_LINEAR;
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+            auto min = m_mipmap ? gl::GL_LINEAR_MIPMAP_LINEAR : gl::GL_LINEAR;
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, min);
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
         } else {
-            auto min = m_mipmap ? GL_NEAREST_MIPMAP_NEAREST : GL_NEAREST;
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, min);
-            glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+            auto min = m_mipmap ? gl::GL_NEAREST_MIPMAP_NEAREST : gl::GL_NEAREST;
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, min);
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_NEAREST);
         }
     }
 
     void QoiView::apply_uniform(Uniform uniform)
     {
-        auto loc = [this](const char* name) { return glGetUniformLocation(m_program, name); };
+        auto loc = [this](const char* name) { return gl::glGetUniformLocation(m_program, name); };
         switch (uniform) {
-        case Uniform::Zoom: glUniform1f(loc("zoom"), m_zoom); break;
-        case Uniform::Offset: glUniform2f(loc("offset"), m_offset.x, m_offset.y); break;
-        case Uniform::Aspect: glUniform2f(loc("aspect"), m_aspect.x, m_aspect.y); break;
-        case Uniform::Tex: glUniform1i(loc("tex"), 0); break;
+        case Uniform::Zoom: gl::glUniform1f(loc("zoom"), m_zoom); break;
+        case Uniform::Offset: gl::glUniform2f(loc("offset"), m_offset.x, m_offset.y); break;
+        case Uniform::Aspect: gl::glUniform2f(loc("aspect"), m_aspect.x, m_aspect.y); break;
+        case Uniform::Tex: gl::glUniform1i(loc("tex"), 0); break;
         }
     }
 
