@@ -14,7 +14,7 @@ find_package(CLI11 REQUIRED)
 
 include(cmake/fetched-libs.cmake)
 
-add_executable(qoiview source/main.cpp source/qoiview.cpp)
+add_executable(qoiview source/main.cpp source/qoiview.cpp source/async_decoder.cpp)
 target_include_directories(qoiview PUBLIC include)
 target_link_libraries(
     qoiview

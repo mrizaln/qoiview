@@ -1,6 +1,7 @@
 #include "qoiview/qoiview.hpp"
 
 #include <CLI/CLI.hpp>
+#include <qoipp/simple.hpp>
 
 #include <algorithm>
 #include <cassert>

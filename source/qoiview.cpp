@@ -37,11 +37,16 @@ namespace
         }
     )glsl";
 
+    // I flipped the y tex coords :P
     constexpr auto vertices = std::array{
-        -1.0f, 1.0f,  0.0f, 1.0f,    // top-left
-        1.0f,  1.0f,  1.0f, 1.0f,    // top-right
-        1.0f,  -1.0f, 1.0f, 0.0f,    // bottom-right
-        -1.0f, -1.0f, 0.0f, 0.0f,    // bottom-left
+        // -1.0f, 1.0f,  0.0f, 1.0f,    // top-left
+        // 1.0f,  1.0f,  1.0f, 1.0f,    // top-right
+        // 1.0f,  -1.0f, 1.0f, 0.0f,    // bottom-right
+        // -1.0f, -1.0f, 0.0f, 0.0f,    // bottom-left
+        -1.0f, 1.0f,  0.0f, 0.0f,    // top-left
+        1.0f,  1.0f,  1.0f, 0.0f,    // top-right
+        1.0f,  -1.0f, 1.0f, 1.0f,    // bottom-right
+        -1.0f, -1.0f, 0.0f, 1.0f,    // bottom-left
     };
 
     constexpr auto indices = std::array{
@@ -52,12 +57,13 @@ namespace
 
 namespace qoiview
 {
-
     QoiView::QoiView(GLFWwindow* window, std::span<const fs::path> files, std::size_t start)
         : m_window{ window }
-        , m_files{ files }
+        , m_files{ files.begin(), files.end() }
         , m_index{ start }
     {
+        m_decoder.launch();
+
         glfwSetWindowUserPointer(m_window, this);
 
         glfwSetFramebufferSizeCallback(window, callback_framebuffer_size);
@@ -68,7 +74,14 @@ namespace qoiview
 
         prepare_rect();
         prepare_shader();
-        prepare_texture();
+
+        while (not prepare_texture() and m_files.empty()) {
+            file_next();
+        }
+
+        if (m_files.empty()) {
+            std::exit(1);
+        }
 
         m_monitor = glfwGetPrimaryMonitor();
         m_mode    = glfwGetVideoMode(m_monitor);
@@ -176,15 +189,37 @@ namespace qoiview
         apply_uniform(Uniform::Zoom);
         apply_uniform(Uniform::Offset);
 
-        glfwSwapInterval(0);
+        glfwSwapInterval(1);
 
         while (not glfwWindowShouldClose(m_window)) {
+            glBindTexture(GL_TEXTURE_2D, m_texture);
+
+            if (auto work = m_decoder.get(); work) {
+                auto desc   = m_decoder.current()->desc;
+                auto format = desc.channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
+
+                glTexSubImage2D(
+                    GL_TEXTURE_2D,
+                    0,
+                    0,
+                    work->start,
+                    desc.width,
+                    work->count,
+                    format,
+                    GL_UNSIGNED_BYTE,
+                    work->data.data()
+                );
+                glGenerateMipmap(GL_TEXTURE_2D);
+            }
+
             glClear(GL_COLOR_BUFFER_BIT);
             glDrawElements(GL_TRIANGLES, indices.size(), GL_UNSIGNED_INT, nullptr);
 
             glfwSwapBuffers(m_window);
-            glfwWaitEvents();
+            glfwPollEvents();
         }
+
+        m_decoder.stop();
     }
 
     void QoiView::update_aspect(int width, int height)
@@ -270,8 +305,14 @@ namespace qoiview
             return;
         }
 
-        m_index = (m_index + 1) % m_files.size();
-        prepare_texture();
+        while (true and not m_files.empty()) {
+            m_index = (m_index + 1) % m_files.size();
+            if (prepare_texture()) {
+                break;
+            } else {
+                m_files.erase(m_files.begin() + static_cast<long>(m_index));
+            }
+        }
 
         int width, height;
         glfwGetWindowSize(m_window, &width, &height);
@@ -284,8 +325,14 @@ namespace qoiview
             return;
         }
 
-        m_index = (m_index - 1) % m_files.size();
-        prepare_texture();
+        while (true and not m_files.empty()) {
+            m_index = (m_index + m_files.size() - 1) % m_files.size();
+            if (prepare_texture()) {
+                break;
+            } else {
+                m_files.erase(m_files.begin() + static_cast<long>(m_index));
+            }
+        }
 
         int width, height;
         glfwGetWindowSize(m_window, &width, &height);
@@ -396,16 +443,17 @@ namespace qoiview
         glDeleteShader(frag);
     }
 
-    void QoiView::prepare_texture()
+    bool QoiView::prepare_texture()
     {
         const auto& file = current_file();
+
         assert(fs::exists(file) and fs::is_regular_file(file));
-        auto res = qoipp::decode(file, qoipp::Channels::RGBA, true);
-        if (not res) {
+
+        auto desc = m_decoder.start(file);
+        if (not desc) {
             fmt::println(stderr, "Failed to decode file {}", file.c_str());
-            return;
+            return false;
         }
-        auto [data, desc] = std::move(res).value();
 
         if (m_texture != 0) {
             glDeleteTextures(1, &m_texture);
@@ -419,11 +467,13 @@ namespace qoiview
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 
-        auto format = desc.channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
-        auto width  = static_cast<GLint>(desc.width);
-        auto height = static_cast<GLint>(desc.height);
-        glTexImage2D(GL_TEXTURE_2D, 0, format, width, height, 0, format, GL_UNSIGNED_BYTE, data.data());
+        auto format = desc->channels == qoipp::Channels::RGB ? GL_RGB : GL_RGBA;
+        auto width  = static_cast<GLint>(desc->width);
+        auto height = static_cast<GLint>(desc->height);
+        glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, format, GL_UNSIGNED_BYTE, nullptr);
         glGenerateMipmap(GL_TEXTURE_2D);
+
+        // TODO: clear texture: https://stackoverflow.com/a/7196109
 
         glUseProgram(m_program);
         apply_uniform(Uniform::Tex);
@@ -432,9 +482,11 @@ namespace qoiview
         glBindTexture(GL_TEXTURE_2D, m_texture);
 
         m_image_size = {
-            .x = static_cast<int>(desc.width),
-            .y = static_cast<int>(desc.height),
+            .x = static_cast<int>(desc->width),
+            .y = static_cast<int>(desc->height),
         };
+
+        return true;
     }
 
     void QoiView::update_filtering(Filter filter, bool mipmap)
@@ -469,9 +521,7 @@ namespace qoiview
         auto result          = std::optional<Inputs>{ std::in_place, std::vector<fs::path>{}, 0 };
         auto& [files, start] = result.value();
 
-        auto is_qoi = [](const fs::path& path) {
-            return fs::is_regular_file(path) and qoipp::read_header(path).has_value();
-        };
+        auto is_qoi = [](const fs::path& path) { return fs::is_regular_file(path); };
 
         if (inputs.size() == 1) {
             auto input = inputs.front();

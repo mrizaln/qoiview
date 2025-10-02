@@ -1,14 +1,14 @@
 #pragma once
 
-#include "common.hpp"
+#include "qoiview/async_decoder.hpp"
 
-#include <qoipp/simple.hpp>
 #define GLFW_INCLUDE_NONE
 #include <GLFW/glfw3.h>
 #include <fmt/core.h>
 #include <glad/glad.h>
 
 #include <cassert>
+#include <deque>
 #include <vector>
 
 namespace qoiview
@@ -88,7 +88,7 @@ namespace qoiview
         void update_title();
         void prepare_rect();
         void prepare_shader();
-        void prepare_texture();
+        bool prepare_texture();
         void update_filtering(Filter filter, bool mipmap);
         void apply_uniform(Uniform uniform);
 
@@ -110,8 +110,10 @@ namespace qoiview
         GLuint m_program;
         GLuint m_texture;
 
-        std::span<const fs::path> m_files;
-        std::size_t               m_index;
+        std::deque<fs::path> m_files;
+        std::size_t          m_index;
+
+        AsyncDecoder m_decoder;
 
         Vec2<int> m_image_size;
         Vec2<int> m_window_pos;
