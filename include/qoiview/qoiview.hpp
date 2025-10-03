@@ -9,16 +9,9 @@
 
 #include <cassert>
 #include <deque>
-#include <vector>
 
 namespace qoiview
 {
-    struct Inputs
-    {
-        std::vector<fs::path> files;
-        std::size_t           start;
-    };
-
     template <typename T = float>
     struct Vec2
     {
@@ -119,6 +112,4 @@ namespace qoiview
         Vec2<int> m_window_pos;
         Vec2<int> m_window_size;
     };
-
-    std::optional<Inputs> get_qoi_files(std::span<const fs::path> inputs);
 }

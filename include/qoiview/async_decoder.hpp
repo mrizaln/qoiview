@@ -33,7 +33,7 @@ namespace qoiview
 
         void launch();
 
-        std::optional<qoipp::Desc> start(fs::path path);
+        qoipp::Result<qoipp::Desc> start(fs::path path);
         std::optional<Work>        get();
         void                       stop();
 

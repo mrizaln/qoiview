@@ -204,9 +204,9 @@ namespace qoiview
                     gl::GL_TEXTURE_2D,
                     0,
                     0,
-                    work->start,
-                    desc.width,
-                    work->count,
+                    static_cast<gl::GLint>(work->start),
+                    static_cast<gl::GLsizei>(desc.width),
+                    static_cast<gl::GLsizei>(work->count),
                     format,
                     gl::GL_UNSIGNED_BYTE,
                     work->data.data()
@@ -307,8 +307,9 @@ namespace qoiview
             return;
         }
 
+        m_index = (m_index + 1) % m_files.size();
+
         while (true and not m_files.empty()) {
-            m_index = (m_index + 1) % m_files.size();
             if (prepare_texture()) {
                 break;
             } else {
@@ -455,7 +456,7 @@ namespace qoiview
 
         auto desc = m_decoder.start(file);
         if (not desc) {
-            fmt::println(stderr, "Failed to decode file {}", file.c_str());
+            fmt::println(stderr, "Failed to decode file {:?}: {}", file.c_str(), to_string(desc.error()));
             return false;
         }
 
@@ -520,55 +521,5 @@ namespace qoiview
         case Uniform::Aspect: gl::glUniform2f(loc("aspect"), m_aspect.x, m_aspect.y); break;
         case Uniform::Tex: gl::glUniform1i(loc("tex"), 0); break;
         }
-    }
-
-    std::optional<Inputs> get_qoi_files(std::span<const fs::path> inputs)
-    {
-        auto result          = std::optional<Inputs>{ std::in_place, std::vector<fs::path>{}, 0 };
-        auto& [files, start] = result.value();
-
-        auto is_qoi = [](const fs::path& path) { return fs::is_regular_file(path); };
-
-        if (inputs.size() == 1) {
-            auto input = inputs.front();
-
-            if (not fs::exists(input)) {
-                fmt::println(stderr, "No such file or directory '{}'", input.c_str());
-                return {};
-            } else if (fs::is_directory(input)) {
-                for (auto file : fs::directory_iterator(input) | sv::filter(is_qoi)) {
-                    files.push_back(file);
-                }
-                if (files.empty()) {
-                    fmt::println(stderr, "No valid qoi files found in '{}' directory", input.c_str());
-                    return {};
-                }
-            } else if (fs::is_regular_file(input)) {
-                if (is_qoi(input)) {
-                    auto parent = fs::directory_iterator{ fs::canonical(input).parent_path() };
-                    for (auto input : parent | sv::filter(is_qoi)) {
-                        files.push_back(input);
-                    }
-                    auto is_input = [&](const fs::path& path) { return fs::equivalent(path, input); };
-                    start         = static_cast<std::size_t>(sr::find_if(files, is_input) - files.begin());
-                } else {
-                    fmt::println(stderr, "Not a valid qoi file '{}'", input.c_str());
-                    return {};
-                }
-            } else {
-                fmt::println(stderr, "Not a regular file or directory '{}'", input.c_str());
-                return {};
-            }
-        } else {
-            for (auto input : inputs | sv::filter(is_qoi)) {
-                files.push_back(input);
-            }
-            if (files.empty()) {
-                fmt::println(stderr, "No valid qoi files found in input arguments");
-                return {};
-            }
-        }
-
-        return result;
     }
 }

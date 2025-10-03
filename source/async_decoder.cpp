@@ -11,7 +11,7 @@ namespace qoiview
         m_thread = std::jthread{ [&](std::stop_token token) { decode_task(token); } };
     }
 
-    std::optional<qoipp::Desc> AsyncDecoder::start(fs::path path)
+    qoipp::Result<qoipp::Desc> AsyncDecoder::start(fs::path path)
     {
         if (m_running.load(std::memory_order::acquire)) {
             m_reset.store(true, std::memory_order::release);
@@ -25,23 +25,22 @@ namespace qoiview
 
         auto header = qoipp::ByteArr<qoipp::constants::header_size>{};
         m_file->handle.read(reinterpret_cast<char*>(header.data()), header.size());
+
         auto desc = m_decoder.initialize(header);
-        if (not desc) {
-            return std::nullopt;
+        if (desc) {
+            m_task.emplace(path, desc.value());
+
+            m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels));
+
+            m_offset_out = 0;
+            m_offset_in  = 0;
+            m_line_start = 0;
+
+            m_running.store(true, std::memory_order::release);
+            m_running.notify_one();
         }
 
-        m_task.emplace(path, desc.value());
-
-        m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels));
-
-        m_offset_out = 0;
-        m_offset_in  = 0;
-        m_line_start = 0;
-
-        m_running.store(true, std::memory_order::release);
-        m_running.notify_one();
-
-        return std::move(desc).value();
+        return desc;
     }
 
     std::optional<AsyncDecoder::Work> AsyncDecoder::get()
@@ -114,8 +113,6 @@ namespace qoiview
             auto data_size     = size - qoipp::constants::header_size - qoipp::constants::end_marker_size;
             auto leftover      = 0uz;
 
-            fmt::println("running on file: {}", m_task->path.c_str());
-
             while (not token.stop_requested()                        //
                    and m_offset_out < m_buffer.size()                //
                    and m_offset_in < data_size                       //
@@ -145,7 +142,6 @@ namespace qoiview
                             in = in.subspan(res->processed);
                         }
                     } else {
-                        fmt::println("decode {:<40} fail: {}", m_task->path.c_str(), to_string(res.error()));
                         m_running.store(false, std::memory_order::release);
                     }
                 }
