@@ -407,9 +407,7 @@ namespace qoiview
 
         if (success == false) {
             gl::glGetShaderInfoLog(vert, buf.size(), nullptr, buf.data());
-            fmt::println(stderr, "Failed to compile vertex shader: {}", buf.data());
-            glfwTerminate();
-            std::exit(1);
+            throw std::runtime_error{ fmt::format("Failed to compile vertex shader: {}", buf.data()) };
         }
 
         auto frag = gl::glCreateShader(gl::GL_FRAGMENT_SHADER);
@@ -419,9 +417,7 @@ namespace qoiview
 
         if (success == false) {
             gl::glGetShaderInfoLog(frag, buf.size(), nullptr, buf.data());
-            fmt::println(stderr, "Failed to compile fragment shader: {}", buf.data());
-            glfwTerminate();
-            std::exit(1);
+            throw std::runtime_error{ fmt::format("Failed to compile fragment shader: {}", buf.data()) };
         }
 
         m_program = gl::glCreateProgram();
@@ -432,9 +428,7 @@ namespace qoiview
 
         if (success == false) {
             gl::glGetProgramInfoLog(m_program, buf.size(), nullptr, buf.data());
-            fmt::println(stderr, "Failed to link shader program: {}", buf.data());
-            glfwTerminate();
-            std::exit(1);
+            throw std::runtime_error{ fmt::format("Failed to link shader program: {}", buf.data()) };
         }
 
         gl::glDeleteShader(vert);

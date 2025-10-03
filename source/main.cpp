@@ -310,8 +310,10 @@ try {
     glfwTerminate();
 } catch (const std::exception& e) {
     fmt::println(stderr, "{}", e.what());
+    glfwTerminate();
     return 1;
 } catch (...) {
     fmt::println(stderr, "Unknown error");
+    glfwTerminate();
     return 1;
 }
