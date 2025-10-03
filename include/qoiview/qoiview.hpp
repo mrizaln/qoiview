@@ -100,18 +100,18 @@ namespace qoiview
         bool   m_mipmap      = true;
         bool   m_mouse_press = false;
 
-        GLFWwindow*        m_window;
-        GLFWmonitor*       m_monitor;
-        const GLFWvidmode* m_mode;
+        GLFWwindow*        m_window  = nullptr;
+        GLFWmonitor*       m_monitor = nullptr;
+        const GLFWvidmode* m_mode    = nullptr;
 
-        gl::GLuint m_vbo;
-        gl::GLuint m_vao;
-        gl::GLuint m_ebo;
-        gl::GLuint m_program;
-        gl::GLuint m_texture;
+        gl::GLuint m_vbo     = 0;
+        gl::GLuint m_vao     = 0;
+        gl::GLuint m_ebo     = 0;
+        gl::GLuint m_program = 0;
+        gl::GLuint m_texture = 0;
 
         std::deque<fs::path> m_files;
-        std::size_t          m_index;
+        std::size_t          m_index = 0;
 
         AsyncDecoder m_decoder;
 

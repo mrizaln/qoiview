@@ -284,7 +284,7 @@ try {
             height = static_cast<int>(static_cast<float>(mode->width) / image_ratio);
         }
 
-        fmt::println(stderr, "Window size exceeds mode resolution, changed to {}x{}", width, height);
+        fmt::println(stderr, "Window size exceeds screen resolution, changed to {}x{}", width, height);
     }
 
     if (width < 100 or height < 100) {

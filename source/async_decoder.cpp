@@ -11,11 +11,10 @@ namespace qoiview
         m_thread = std::jthread{ [&](std::stop_token token) { decode_task(token); } };
     }
 
-    qoipp::Result<qoipp::Desc> AsyncDecoder::start(fs::path path)
+    qoipp::Result<AsyncDecoder::Preparation> AsyncDecoder::prepare(fs::path path)
     {
         if (m_running.load(std::memory_order::acquire)) {
-            m_reset.store(true, std::memory_order::release);
-            m_reset.wait(true);
+            cancel();
         }
 
         m_decoder.reset();
@@ -26,21 +25,21 @@ namespace qoiview
         auto header = qoipp::ByteArr<qoipp::constants::header_size>{};
         m_file->handle.read(reinterpret_cast<char*>(header.data()), header.size());
 
-        auto desc = m_decoder.initialize(header);
-        if (desc) {
-            m_task.emplace(path, desc.value());
-
-            m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels));
-
-            m_offset_out = 0;
-            m_offset_in  = 0;
-            m_line_start = 0;
-
-            m_running.store(true, std::memory_order::release);
-            m_running.notify_one();
+        auto desc = m_decoder.initialize(header, qoipp::Channels::RGBA);
+        if (not desc) {
+            return qoipp::make_error<Preparation>(desc.error());
         }
 
-        return desc;
+        m_task.emplace(path, desc.value());
+
+        std::memset(m_buffer.data(), 0, m_offset_out);
+        m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels));
+
+        m_offset_out = 0;
+        m_offset_in  = 0;
+        m_line_start = 0;
+
+        return Preparation{ std::move(desc).value(), m_buffer };
     }
 
     std::optional<AsyncDecoder::Work> AsyncDecoder::get()
@@ -76,6 +75,18 @@ namespace qoiview
             .start = start,
             .count = count,
         };
+    }
+
+    void AsyncDecoder::start()
+    {
+        m_running.store(true, std::memory_order::release);
+        m_running.notify_one();
+    }
+
+    void AsyncDecoder::cancel()
+    {
+        m_reset.store(true, std::memory_order::release);
+        m_reset.wait(true);
     }
 
     void AsyncDecoder::stop()

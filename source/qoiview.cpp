@@ -77,14 +77,6 @@ namespace qoiview
         prepare_rect();
         prepare_shader();
 
-        while (not prepare_texture() and m_files.empty()) {
-            file_next();
-        }
-
-        if (m_files.empty()) {
-            std::exit(1);
-        }
-
         m_monitor = glfwGetPrimaryMonitor();
         m_mode    = glfwGetVideoMode(m_monitor);
     }
@@ -177,6 +169,8 @@ namespace qoiview
 
     void QoiView::run(int width, int height, Color background)
     {
+        prepare_texture();
+
         auto to_float = [](std::uint8_t c) { return static_cast<float>(c) / 255.0f; };
         gl::glClearColor(to_float(background.r), to_float(background.g), to_float(background.b), 1.0f);
 
@@ -195,11 +189,8 @@ namespace qoiview
         glfwSwapInterval(1);
 
         while (not glfwWindowShouldClose(m_window)) {
-            gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
-
             if (auto work = m_decoder.get(); work) {
-                auto desc   = m_decoder.current()->desc;
-                auto format = desc.channels == qoipp::Channels::RGB ? gl::GL_RGB : gl::GL_RGBA;
+                auto desc = m_decoder.current()->desc;
 
                 gl::glTexSubImage2D(
                     gl::GL_TEXTURE_2D,
@@ -208,7 +199,7 @@ namespace qoiview
                     static_cast<gl::GLint>(work->start),
                     static_cast<gl::GLsizei>(desc.width),
                     static_cast<gl::GLsizei>(work->count),
-                    format,
+                    gl::GL_RGBA,
                     gl::GL_UNSIGNED_BYTE,
                     work->data.data()
                 );
@@ -454,46 +445,52 @@ namespace qoiview
     {
         const auto& file = current_file();
 
-        assert(fs::exists(file) and fs::is_regular_file(file));
-
-        auto desc = m_decoder.start(file);
-        if (not desc) {
-            fmt::println(stderr, "Failed to decode file {:?}: {}", file.c_str(), to_string(desc.error()));
+        auto prep = m_decoder.prepare(file);
+        if (not prep) {
+            fmt::println(stderr, "Failed to decode file {:?}: {}", file.c_str(), to_string(prep.error()));
             return false;
         }
 
-        if (m_texture != 0) {
-            gl::glDeleteTextures(1, &m_texture);
+        if (m_texture == 0) {
+            gl::glGenTextures(1, &m_texture);
+            gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
         }
-
-        gl::glGenTextures(1, &m_texture);
-        gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
 
         gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_CLAMP_TO_EDGE);
         gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_CLAMP_TO_EDGE);
         gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
         gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
 
-        auto format = desc->channels == qoipp::Channels::RGB ? gl::GL_RGB : gl::GL_RGBA;
-        auto width  = static_cast<gl::GLint>(desc->width);
-        auto height = static_cast<gl::GLint>(desc->height);
+        auto&& [desc, buffer] = *prep;
+
+        auto width  = static_cast<gl::GLint>(desc.width);
+        auto height = static_cast<gl::GLint>(desc.height);
+
+        // TODO: clear texture without copying data: https://stackoverflow.com/a/7196109
         gl::glTexImage2D(
-            gl::GL_TEXTURE_2D, 0, gl::GL_RGBA, width, height, 0, format, gl::GL_UNSIGNED_BYTE, nullptr
+            gl::GL_TEXTURE_2D,
+            0,
+            gl::GL_RGBA,
+            width,
+            height,
+            0,
+            gl::GL_RGBA,
+            gl::GL_UNSIGNED_BYTE,
+            buffer.data()
         );
         gl::glGenerateMipmap(gl::GL_TEXTURE_2D);
-
-        // TODO: clear texture: https://stackoverflow.com/a/7196109
 
         gl::glUseProgram(m_program);
         apply_uniform(Uniform::Tex);
 
         gl::glActiveTexture(gl::GL_TEXTURE0);
-        gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
 
         m_image_size = {
-            .x = static_cast<int>(desc->width),
-            .y = static_cast<int>(desc->height),
+            .x = static_cast<int>(desc.width),
+            .y = static_cast<int>(desc.height),
         };
+
+        m_decoder.start();
 
         return true;
     }

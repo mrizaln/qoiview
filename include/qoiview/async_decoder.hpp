@@ -31,11 +31,20 @@ namespace qoiview
             std::size_t   size;
         };
 
+        struct Preparation
+        {
+            qoipp::Desc      desc;
+            qoipp::ByteCSpan buffer;
+        };
+
         void launch();
 
-        qoipp::Result<qoipp::Desc> start(fs::path path);
+        qoipp::Result<Preparation> prepare(fs::path path);
         std::optional<Work>        get();
-        void                       stop();
+
+        void start();
+        void cancel();
+        void stop();
 
         std::optional<Task> current() const { return m_task; }
 
