@@ -59,9 +59,9 @@ namespace
 
 namespace qoiview
 {
-    QoiView::QoiView(GLFWwindow* window, std::span<const fs::path> files, std::size_t start)
+    QoiView::QoiView(GLFWwindow* window, std::deque<fs::path> files, std::size_t start)
         : m_window{ window }
-        , m_files{ files.begin(), files.end() }
+        , m_files{ std::move(files) }
         , m_index{ start }
     {
         m_decoder.launch();
@@ -175,15 +175,16 @@ namespace qoiview
         }
     }
 
-    void QoiView::run(int width, int height)
+    void QoiView::run(int width, int height, Color background)
     {
+        auto to_float = [](std::uint8_t c) { return static_cast<float>(c) / 255.0f; };
+        gl::glClearColor(to_float(background.r), to_float(background.g), to_float(background.b), 1.0f);
+
         gl::glBlendFunc(gl::GL_SRC_ALPHA, gl::GL_ONE_MINUS_SRC_ALPHA);
         gl::glEnable(gl::GL_BLEND);
 
         gl::glUseProgram(m_program);
-
         gl::glBindVertexArray(m_vao);
-        gl::glClearColor(0.13f, 0.14f, 0.21f, 1.0f);
 
         gl::glViewport(0, 0, width, height);
         update_aspect(width, height);
@@ -310,6 +311,7 @@ namespace qoiview
         m_index = (m_index + 1) % m_files.size();
 
         while (true and not m_files.empty()) {
+            m_index = m_index % m_files.size();
             if (prepare_texture()) {
                 break;
             } else {

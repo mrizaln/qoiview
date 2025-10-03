@@ -19,6 +19,13 @@ namespace qoiview
         T y;
     };
 
+    struct Color
+    {
+        std::uint8_t r;
+        std::uint8_t g;
+        std::uint8_t b;
+    };
+
     enum class Movement
     {
         Up,
@@ -52,10 +59,10 @@ namespace qoiview
     class QoiView
     {
     public:
-        QoiView(GLFWwindow* window, std::span<const fs::path> files, std::size_t start);
+        QoiView(GLFWwindow* window, std::deque<fs::path> files, std::size_t start);
         ~QoiView();
 
-        void run(int width, int height);
+        void run(int width, int height, Color background);
 
         const fs::path& current_file() const { return m_files[m_index]; }
 
