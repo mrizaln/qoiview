@@ -38,7 +38,7 @@ namespace qoiview
         m_offset_in  = 0;
         m_line_start = 0;
 
-        m_running.store(true);
+        m_running.store(true, std::memory_order::release);
         m_running.notify_one();
 
         return std::move(desc).value();
@@ -46,13 +46,11 @@ namespace qoiview
 
     std::optional<AsyncDecoder::Work> AsyncDecoder::get()
     {
-        // m_running.wait(true);
-
         if (m_line_start >= m_task->desc.height) {
             return std::nullopt;
         }
 
-        if (m_running) {
+        if (m_running.load(std::memory_order::acquire)) {
             m_pause_req.store(true, std::memory_order::release);
             m_pause_req.wait(true);
         }
@@ -83,10 +81,11 @@ namespace qoiview
 
     void AsyncDecoder::stop()
     {
-        m_running.store(true);
+        m_thread.request_stop();
+
+        m_running.store(true, std::memory_order::release);
         m_running.notify_one();
 
-        m_thread.request_stop();
         m_thread.join();
     }
 
@@ -94,8 +93,7 @@ namespace qoiview
     {
         constexpr auto buf_size = 48 * 1024uz;
 
-        auto in_buf   = qoipp::ByteVec(buf_size);
-        auto leftover = 0uz;
+        auto in_buf = qoipp::ByteVec(buf_size);
 
         auto create_out_span = [&] {
             return std::span{
@@ -104,21 +102,17 @@ namespace qoiview
             };
         };
 
+        m_running.wait(false);
+
         while (not token.stop_requested()) {
-            // m_running.notify_all();
-            m_running.wait(false);
-
-            if (token.stop_requested()) {
-                break;
-            }
-
             if (not m_file) {
-                m_running.store(false);
+                m_running.store(false, std::memory_order::release);
                 continue;
             }
 
             auto& [file, size] = m_file.value();
             auto data_size     = size - qoipp::constants::header_size - qoipp::constants::end_marker_size;
+            auto leftover      = 0uz;
 
             fmt::println("running on file: {}", m_task->path.c_str());
 
@@ -128,18 +122,14 @@ namespace qoiview
                    and m_running.load(std::memory_order::acquire)    //
                    and not m_reset.load(std::memory_order::acquire)) {
 
-                auto out = create_out_span();
-                auto in  = std::span{ in_buf };
-
                 file.read(
-                    reinterpret_cast<char*>(in.data() + leftover), static_cast<long>(in.size() - leftover)
+                    reinterpret_cast<char*>(in_buf.data() + leftover),
+                    static_cast<long>(in_buf.size() - leftover)
                 );
 
-                if (file.fail()) {
-                    file.close();
-                    m_running.store(false, std::memory_order::release);
-                }
-                in       = in.subspan(0, static_cast<std::size_t>(file.gcount()) + leftover);
+                auto in  = std::span{ in_buf.begin(), static_cast<std::size_t>(file.gcount()) + leftover };
+                auto out = create_out_span();
+
                 leftover = 0uz;
 
                 while (not in.empty()) {
@@ -155,18 +145,14 @@ namespace qoiview
                             in = in.subspan(res->processed);
                         }
                     } else {
-                        fmt::println(
-                            "decode on {:<40} failed: {}", m_task->path.c_str(), qoipp::to_string(res.error())
-                        );
+                        fmt::println("decode {:<40} fail: {}", m_task->path.c_str(), to_string(res.error()));
                         m_running.store(false, std::memory_order::release);
                     }
                 }
 
-                if (m_pause_req.load(std::memory_order::acquire)) {
-                    m_pause_req.store(false, std::memory_order::release);
-                    m_pause_req.notify_one();
-
+                if (auto req = true; m_pause_req.compare_exchange_strong(req, false)) {
                     m_pause_flag.store(true, std::memory_order::release);
+                    m_pause_req.notify_one();
                     m_pause_flag.wait(true);
                 }
             }
@@ -176,17 +162,16 @@ namespace qoiview
                 m_offset_out += m_decoder.drain_run(out).value();
             }
 
-            if (m_reset.load(std::memory_order::acquire)) {
+            if (auto value = true; m_reset.compare_exchange_strong(value, false)) {
                 m_running.store(false, std::memory_order::release);
-
-                m_reset.store(false, std::memory_order::release);
                 m_reset.notify_one();
 
                 continue;
             }
 
-            if (m_offset_out >= m_buffer.size() or m_offset_in >= data_size or not file.is_open()) {
+            if (m_offset_out >= m_buffer.size() or m_offset_in >= data_size or file.fail()) {
                 m_file->handle.close();
+
                 m_running.store(false, std::memory_order::release);
 
                 m_reset.store(false, std::memory_order::release);
@@ -195,6 +180,8 @@ namespace qoiview
                 m_pause_req.store(false, std::memory_order::release);
                 m_pause_req.notify_one();
             }
+
+            m_running.wait(false);
         }
     }
 }
