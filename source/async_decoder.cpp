@@ -14,7 +14,8 @@ namespace qoiview
     qoipp::Result<AsyncDecoder::Preparation> AsyncDecoder::prepare(fs::path path)
     {
         if (m_running.load(std::memory_order::acquire)) {
-            cancel();
+            m_reset.store(true, std::memory_order::release);
+            m_reset.wait(true);
         }
 
         m_decoder.reset();
@@ -42,8 +43,8 @@ namespace qoiview
         m_buffer.clear();
         m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels), 0x00);
 
-        m_offset_out = 0;
-        m_offset_in  = qoipp::constants::header_size;
+        m_off_out    = 0;
+        m_off_in     = qoipp::constants::header_size;
         m_line_start = 0;
 
         return Preparation{ std::move(desc).value(), m_buffer };
@@ -56,14 +57,14 @@ namespace qoiview
         }
 
         if (m_running.load(std::memory_order::acquire)) {
-            m_pause_req.store(true, std::memory_order::release);
-            m_pause_req.wait(true);
+            m_pause.store(true, std::memory_order::release);
+            m_pause.wait(true);
         }
 
         const auto width = m_task->desc.width * static_cast<std::size_t>(m_task->desc.channels);
 
         auto start = m_line_start;
-        auto stop  = m_offset_out / width;
+        auto stop  = m_off_out / width;
 
         if (start == stop) {
             return std::nullopt;
@@ -72,10 +73,10 @@ namespace qoiview
         auto count = stop - start;
         auto span  = std::span{ m_buffer.begin() + static_cast<std::ptrdiff_t>(start * width), stop * width };
 
-        m_line_start = stop + (m_offset_out % width == 0);
+        m_line_start = stop + (m_off_out % width == 0);
 
-        m_pause_flag.store(false, std::memory_order::release);
-        m_pause_flag.notify_one();
+        m_running.store(true, std::memory_order::release);
+        m_running.notify_one();
 
         return Work{
             .data  = span,
@@ -90,12 +91,6 @@ namespace qoiview
         m_running.notify_one();
     }
 
-    void AsyncDecoder::cancel()
-    {
-        m_reset.store(true, std::memory_order::release);
-        m_reset.wait(true);
-    }
-
     void AsyncDecoder::stop()
     {
         m_thread.request_stop();
@@ -108,15 +103,23 @@ namespace qoiview
 
     void AsyncDecoder::decode_task(std::stop_token token)
     {
-        constexpr auto buf_size = 48 * 1024uz;
+        constexpr auto buf_size = 64 * 1024uz;
 
         auto in_buf = qoipp::ByteVec(buf_size);
 
         auto create_out_span = [&] {
             return std::span{
-                m_buffer.begin() + static_cast<std::ptrdiff_t>(m_offset_out),
-                m_buffer.size() - m_offset_out,
+                m_buffer.begin() + static_cast<std::ptrdiff_t>(m_off_out),
+                m_buffer.size() - m_off_out,
             };
+        };
+
+        auto wake_waiters = [&] {
+            m_reset.store(false, std::memory_order::release);
+            m_reset.notify_one();
+
+            m_pause.store(false, std::memory_order::release);
+            m_pause.notify_one();
         };
 
         spdlog::debug("Decoder started");
@@ -124,22 +127,29 @@ namespace qoiview
         m_running.wait(false);
 
         while (not token.stop_requested()) {
-            if (not m_file) {
-                m_running.store(false, std::memory_order::release);
-                continue;
-            }
+            assert(m_file and m_task);
 
-            auto [path, desc]  = *m_task;
-            auto& [file, size] = m_file.value();
-            auto leftover      = 0uz;
+            auto [path, desc]   = m_task.value();
+            auto& [file, fsize] = m_file.value();
+            auto leftover       = 0uz;
+            auto cancel         = false;
 
             spdlog::debug("Decoding start: {:?}", path.c_str());
 
-            while (not token.stop_requested()                        //
-                   and m_offset_out < m_buffer.size()                //
-                   and m_offset_in < size                            //
-                   and m_running.load(std::memory_order::acquire)    //
-                   and not m_reset.load(std::memory_order::acquire)) {
+            while (not token.stop_requested()         //
+                   and m_off_out < m_buffer.size()    //
+                   and m_off_in < fsize               //
+                   and file.good()) {
+
+                if (m_pause.exchange(false, std::memory_order::acq_rel)) {
+                    m_running.store(false, std::memory_order::release);
+                    m_pause.notify_one();
+                    m_running.wait(false);
+                } else if (cancel = m_reset.exchange(false, std::memory_order::acq_rel); cancel) {
+                    m_running.store(false, std::memory_order::release);
+                    m_reset.notify_one();
+                    break;
+                }
 
                 try {
                     file.read(
@@ -150,18 +160,16 @@ namespace qoiview
                     spdlog::error("Failed to read file {:?}: {}", path.c_str(), e.what());
                 }
 
-                auto out = create_out_span();
-                auto in  = std::span{
-                    in_buf.begin(),
-                    std::min(static_cast<std::size_t>(file.gcount()) + leftover, size - m_offset_in),
-                };
+                auto in_size = std::min(static_cast<std::size_t>(file.gcount()) + leftover, fsize - m_off_in);
+                auto in      = std::span{ in_buf.begin(), in_size };
+                auto out     = create_out_span();
 
                 leftover = 0uz;
 
                 while (not in.empty()) {
                     if (auto res = m_decoder.decode(out, in); res) {
-                        m_offset_out += res->written;
-                        m_offset_in  += res->processed;
+                        m_off_out += res->written;
+                        m_off_in  += res->processed;
 
                         if (res->processed == 0) {
                             leftover = in.size();
@@ -172,41 +180,34 @@ namespace qoiview
                         }
                     } else {
                         spdlog::error("Failed to decode {:?}: {}", path.c_str(), to_string(res.error()));
+
                         m_running.store(false, std::memory_order::release);
+                        cancel = true;
+                        wake_waiters();
                         break;
                     }
                 }
+            }
 
-                if (auto req = true; m_pause_req.compare_exchange_strong(req, false)) {
-                    m_pause_flag.store(true, std::memory_order::release);
-                    m_pause_req.notify_one();
-                    m_pause_flag.wait(true);
-                }
+            if (cancel) {
+                spdlog::debug("Decoding cancelled");
+
+                m_running.wait(false);
+                continue;
             }
 
             while (m_decoder.has_run_count()) {
-                auto out      = create_out_span();
-                m_offset_out += m_decoder.drain_run(out).value();
+                auto out   = create_out_span();
+                m_off_out += m_decoder.drain_run(out).value();
             }
 
-            if (auto value = true; m_reset.compare_exchange_strong(value, false)) {
-                m_running.store(false, std::memory_order::release);
-                m_reset.notify_one();
+            if (m_off_out >= m_buffer.size() or m_off_in >= fsize or file.fail()) {
+                spdlog::debug("Decoding complete{}", m_off_out < m_buffer.size() ? " (truncated)" : "");
+                spdlog::debug("Decoded data: {}/{}", m_off_in, fsize);
 
-                spdlog::debug("Decoding cancelled");
-            } else if (m_offset_out >= m_buffer.size() or m_offset_in >= size or file.fail()) {
                 m_file->handle.close();
-
                 m_running.store(false, std::memory_order::release);
-
-                m_reset.store(false, std::memory_order::release);
-                m_reset.notify_one();
-
-                m_pause_req.store(false, std::memory_order::release);
-                m_pause_req.notify_one();
-
-                spdlog::debug("Decoding complete{}", m_offset_out < m_buffer.size() ? " (truncated)" : "");
-                spdlog::debug("Decoded data: {}/{}", m_offset_in, size);
+                wake_waiters();
             }
 
             m_running.wait(false);

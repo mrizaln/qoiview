@@ -43,7 +43,6 @@ namespace qoiview
         std::optional<Work>        get();
 
         void start();
-        void cancel();
         void stop();
 
         std::optional<Task> current() const { return m_task; }
@@ -53,18 +52,17 @@ namespace qoiview
         void decode_task(std::stop_token token);
 
         std::jthread      m_thread;
-        std::atomic<bool> m_running    = false;
-        std::atomic<bool> m_reset      = false;
-        std::atomic<bool> m_pause_req  = false;
-        std::atomic<bool> m_pause_flag = false;
+        std::atomic<bool> m_running = false;
+        std::atomic<bool> m_reset   = false;
+        std::atomic<bool> m_pause   = false;
 
         qoipp::StreamDecoder     m_decoder;
         std::optional<Task>      m_task;
         std::optional<File>      m_file;
         std::vector<qoipp::Byte> m_buffer;
 
-        std::size_t m_offset_out = 0;
-        std::size_t m_offset_in  = 0;
+        std::size_t m_off_out    = 0;
+        std::size_t m_off_in     = 0;
         std::size_t m_line_start = 0;
     };
 }
