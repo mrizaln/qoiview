@@ -8,6 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 find_package(fmt REQUIRED)
+find_package(spdlog REQUIRED)
 find_package(glfw3 REQUIRED)
 find_package(glbinding REQUIRED)
 find_package(khrplatform REQUIRED)
@@ -26,6 +27,7 @@ target_link_libraries(
     qoiview
     PRIVATE
         fmt::fmt
+        spdlog::spdlog
         glfw
         glbinding::glbinding
         khrplatform::khrplatform

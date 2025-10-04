@@ -2,7 +2,7 @@
 
 #include <fmt/base.h>
 #include <fmt/ranges.h>
-#include <qoipp/common.hpp>
+#include <spdlog/spdlog.h>
 
 namespace qoiview
 {
@@ -25,6 +25,13 @@ namespace qoiview
         auto header = qoipp::ByteArr<qoipp::constants::header_size>{};
         m_file->handle.read(reinterpret_cast<char*>(header.data()), header.size());
 
+        try {
+            m_file->handle.exceptions(std::fstream::badbit);
+        } catch (const std::ios_base::failure& e) {
+            spdlog::error("Failed to read file {:?}: {}", path.c_str(), e.what());
+            return qoipp::make_error<Preparation>(qoipp::Error::IoError);
+        }
+
         auto desc = m_decoder.initialize(header, qoipp::Channels::RGBA);
         if (not desc) {
             return qoipp::make_error<Preparation>(desc.error());
@@ -36,7 +43,7 @@ namespace qoiview
         m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels));
 
         m_offset_out = 0;
-        m_offset_in  = 0;
+        m_offset_in  = qoipp::constants::header_size;
         m_line_start = 0;
 
         return Preparation{ std::move(desc).value(), m_buffer };
@@ -63,7 +70,7 @@ namespace qoiview
         }
 
         auto count = stop - start;
-        auto span  = std::span{ m_buffer.begin() + static_cast<long>(start * width), stop * width };
+        auto span  = std::span{ m_buffer.begin() + static_cast<std::ptrdiff_t>(start * width), stop * width };
 
         m_line_start = stop + (m_offset_out % width == 0);
 
@@ -107,10 +114,12 @@ namespace qoiview
 
         auto create_out_span = [&] {
             return std::span{
-                m_buffer.begin() + static_cast<long>(m_offset_out),
+                m_buffer.begin() + static_cast<std::ptrdiff_t>(m_offset_out),
                 m_buffer.size() - m_offset_out,
             };
         };
+
+        spdlog::debug("Decoder started");
 
         m_running.wait(false);
 
@@ -120,23 +129,32 @@ namespace qoiview
                 continue;
             }
 
+            auto [path, desc]  = *m_task;
             auto& [file, size] = m_file.value();
-            auto data_size     = size - qoipp::constants::header_size - qoipp::constants::end_marker_size;
             auto leftover      = 0uz;
+
+            spdlog::debug("Decoding start: {:?}", path.c_str());
 
             while (not token.stop_requested()                        //
                    and m_offset_out < m_buffer.size()                //
-                   and m_offset_in < data_size                       //
+                   and m_offset_in < size                            //
                    and m_running.load(std::memory_order::acquire)    //
                    and not m_reset.load(std::memory_order::acquire)) {
 
-                file.read(
-                    reinterpret_cast<char*>(in_buf.data() + leftover),
-                    static_cast<long>(in_buf.size() - leftover)
-                );
+                try {
+                    file.read(
+                        reinterpret_cast<char*>(in_buf.data() + leftover),
+                        static_cast<std::streamsize>(in_buf.size() - leftover)
+                    );
+                } catch (const std::ios_base::failure& e) {
+                    spdlog::error("Failed to read file {:?}: {}", path.c_str(), e.what());
+                }
 
-                auto in  = std::span{ in_buf.begin(), static_cast<std::size_t>(file.gcount()) + leftover };
                 auto out = create_out_span();
+                auto in  = std::span{
+                    in_buf.begin(),
+                    std::min(static_cast<std::size_t>(file.gcount()) + leftover, size - m_offset_in),
+                };
 
                 leftover = 0uz;
 
@@ -153,7 +171,9 @@ namespace qoiview
                             in = in.subspan(res->processed);
                         }
                     } else {
+                        spdlog::error("Failed to decode {:?}: {}", path.c_str(), to_string(res.error()));
                         m_running.store(false, std::memory_order::release);
+                        break;
                     }
                 }
 
@@ -173,10 +193,8 @@ namespace qoiview
                 m_running.store(false, std::memory_order::release);
                 m_reset.notify_one();
 
-                continue;
-            }
-
-            if (m_offset_out >= m_buffer.size() or m_offset_in >= data_size or file.fail()) {
+                spdlog::debug("Decoding cancelled");
+            } else if (m_offset_out >= m_buffer.size() or m_offset_in >= size or file.fail()) {
                 m_file->handle.close();
 
                 m_running.store(false, std::memory_order::release);
@@ -186,9 +204,14 @@ namespace qoiview
 
                 m_pause_req.store(false, std::memory_order::release);
                 m_pause_req.notify_one();
+
+                spdlog::debug("Decoding complete{}", m_offset_out < m_buffer.size() ? " (truncated)" : "");
+                spdlog::debug("Decoded data: {}/{}", m_offset_in, size);
             }
 
             m_running.wait(false);
         }
+
+        spdlog::debug("Decoder stopped");
     }
 }

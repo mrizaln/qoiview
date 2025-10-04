@@ -3,6 +3,9 @@
 #include <CLI/CLI.hpp>
 #include <glbinding/glbinding.h>
 #include <qoipp/simple.hpp>
+#include <spdlog/sinks/null_sink.h>
+#include <spdlog/sinks/stdout_color_sinks.h>
+#include <spdlog/spdlog.h>
 
 #include <algorithm>
 #include <cassert>
@@ -100,6 +103,8 @@ std::variant<Args, int> parse_args(int argc, char** argv)
     auto single     = false;
     auto width      = 0;
     auto height     = 0;
+    auto debug      = false;
+    auto verbose    = false;
 
     auto check_hex = [](std::string_view hex) {
         auto msg = "invalid color hex";
@@ -125,6 +130,9 @@ std::variant<Args, int> parse_args(int argc, char** argv)
     app.add_flag("-r,--reverse", reverse, "Reverse sort");
     app.add_flag("-s,--single", single, "Run in single file mode");
 
+    auto verbose_opt = app.add_flag("--verbose", verbose, "Print additional output");
+    app.add_flag("--debug", debug, "Print debug outputs")->excludes(verbose_opt);
+
     if (argc == 1) {
         fmt::print(stderr, "{}", app.help());
         return 1;
@@ -132,9 +140,21 @@ std::variant<Args, int> parse_args(int argc, char** argv)
 
     CLI11_PARSE(app, argc, argv);
 
+    if (not verbose and not debug) {
+        spdlog::set_default_logger(spdlog::null_logger_mt("qoiview-log"));
+        spdlog::set_level(spdlog::level::off);
+    } else if (verbose) {
+        spdlog::set_default_logger(spdlog::stderr_color_mt("qoiview-log"));
+        spdlog::set_level(spdlog::level::info);
+    } else if (debug) {
+        spdlog::set_default_logger(spdlog::stderr_color_mt("qoiview-log"));
+        spdlog::set_level(spdlog::level::debug);
+    }
+    spdlog::set_pattern("[qoiview] [%^%L%$] %v");
+
     auto inputs = std::optional<Inputs>{};
     if (single and files.size() != 1) {
-        fmt::println(stderr, "Single mode provided but multiple files included");
+        fmt::println(stderr, "Single mode is requested but multiple files is provided");
         return 1;
     } else if (single) {
         auto path = files.front();
@@ -241,13 +261,13 @@ try {
     while (true) {
         auto file = inputs.files[inputs.start];
         if (auto res = qoipp::read_header(file); not res) {
-            fmt::println(stderr, "Failed to decode file {:?}: {}", file.c_str(), to_string(res.error()));
+            spdlog::info("Failed to decode file {:?}: {}", file.c_str(), to_string(res.error()));
         } else {
             header = *res;
             break;
         }
 
-        inputs.files.erase(inputs.files.begin() + static_cast<long>(inputs.start));
+        inputs.files.erase(inputs.files.begin() + static_cast<std::ptrdiff_t>(inputs.start));
         if (inputs.files.empty()) {
             break;
         }
@@ -270,7 +290,7 @@ try {
         height     = static_cast<int>(static_cast<float>(width) / ratio);
     }
 
-    fmt::println(stderr, "Window size set to {}x{}", width, height);
+    spdlog::info("Window size set to {}x{}", width, height);
 
     if (height > mode->height or width > mode->width) {
         auto monitor_ratio = static_cast<float>(mode->width) / static_cast<float>(mode->height);
@@ -284,14 +304,14 @@ try {
             height = static_cast<int>(static_cast<float>(mode->width) / image_ratio);
         }
 
-        fmt::println(stderr, "Window size exceeds screen resolution, changed to {}x{}", width, height);
+        spdlog::warn("Window size exceeds screen resolution, changed to {}x{}", width, height);
     }
 
     if (width < 100 or height < 100) {
         width  = std::max(width, 100);
         height = std::max(height, 100);
 
-        fmt::println(stderr, "Window size is too small, changed to {}x{}", width, height);
+        spdlog::warn("Window size is too small, changed to {}x{}", width, height);
     }
 
     auto* window = glfwCreateWindow(width, height, "QoiView", nullptr, nullptr);

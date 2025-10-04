@@ -1,6 +1,7 @@
 #include "qoiview/qoiview.hpp"
 
 #include <glbinding/gl/gl.h>
+#include <spdlog/spdlog.h>
 
 namespace
 {
@@ -92,7 +93,7 @@ namespace qoiview
 
     void QoiView::callback_error(int error, const char* description)
     {
-        fmt::println(stderr, "GLFW Error [{:#010x}]: {}", error, description);
+        spdlog::error("GLFW Error [{:#010x}]: {}", error, description);
     }
 
     void QoiView::callback_framebuffer_size(GLFWwindow* window, int width, int height)
@@ -306,7 +307,7 @@ namespace qoiview
             if (prepare_texture()) {
                 break;
             } else {
-                m_files.erase(m_files.begin() + static_cast<long>(m_index));
+                m_files.erase(m_files.begin() + static_cast<std::ptrdiff_t>(m_index));
             }
         }
 
@@ -326,7 +327,7 @@ namespace qoiview
             if (prepare_texture()) {
                 break;
             } else {
-                m_files.erase(m_files.begin() + static_cast<long>(m_index));
+                m_files.erase(m_files.begin() + static_cast<std::ptrdiff_t>(m_index));
             }
         }
 
@@ -441,7 +442,7 @@ namespace qoiview
 
         auto prep = m_decoder.prepare(file);
         if (not prep) {
-            fmt::println(stderr, "Failed to decode file {:?}: {}", file.c_str(), to_string(prep.error()));
+            spdlog::info("Failed to decode file {:?}: {}", file.c_str(), to_string(prep.error()));
             return false;
         }
 
