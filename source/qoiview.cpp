@@ -168,10 +168,13 @@ namespace qoiview
         }
     }
 
+    bool QoiView::check_qoi(const fs::path& path)
+    {
+        return qoipp::read_header(path).has_value();
+    }
+
     void QoiView::run(int width, int height, Color background)
     {
-        prepare_texture();
-
         auto to_float = [](std::uint8_t c) { return static_cast<float>(c) / 255.0f; };
         gl::glClearColor(to_float(background.r), to_float(background.g), to_float(background.b), 1.0f);
 
@@ -190,6 +193,18 @@ namespace qoiview
         glfwSwapInterval(1);
 
         while (not glfwWindowShouldClose(m_window)) {
+            if (std::exchange(m_update_texture, false)) {
+                prepare_texture();
+
+                int width, height;
+                glfwGetWindowSize(m_window, &width, &height);
+                update_aspect(width, height);
+            }
+
+            if (std::exchange(m_update_title, false)) {
+                update_title();
+            }
+
             if (auto work = m_decoder.get(); work) {
                 auto desc = m_decoder.current()->desc;
 
@@ -231,7 +246,7 @@ namespace qoiview
         }
 
         apply_uniform(Uniform::Aspect);
-        update_title();
+        m_update_title = true;
     }
 
     void QoiView::update_zoom(Zoom zoom)
@@ -243,7 +258,7 @@ namespace qoiview
         }
 
         apply_uniform(Uniform::Zoom);
-        update_title();
+        m_update_title = true;
     }
 
     void QoiView::update_offset(Movement movement)
@@ -285,13 +300,13 @@ namespace qoiview
         auto count  = static_cast<int>(Filter::count);
         auto filter = static_cast<Filter>((static_cast<int>(m_filter) + 1) % count);
         update_filtering(filter, m_mipmap);
-        update_title();
+        m_update_title = true;
     }
 
     void QoiView::toggle_mipmap()
     {
         update_filtering(m_filter, not m_mipmap);
-        update_title();
+        m_update_title = true;
     }
 
     void QoiView::file_next()
@@ -300,20 +315,20 @@ namespace qoiview
             return;
         }
 
-        m_index = (m_index + 1) % m_files.size();
+        auto prev = m_index;
+        m_index   = (m_index + 1) % m_files.size();
 
         while (true and not m_files.empty()) {
             m_index = m_index % m_files.size();
-            if (prepare_texture()) {
+            if (check_qoi(current_file())) {
                 break;
             } else {
                 m_files.erase(m_files.begin() + static_cast<std::ptrdiff_t>(m_index));
             }
         }
 
-        int width, height;
-        glfwGetWindowSize(m_window, &width, &height);
-        update_aspect(width, height);
+        m_update_texture = prev >= m_files.size() or m_files[prev] != m_files[m_index];
+        m_update_title   = true;
     }
 
     void QoiView::file_previous()
@@ -322,25 +337,25 @@ namespace qoiview
             return;
         }
 
+        auto prev = m_index;
         while (true and not m_files.empty()) {
             m_index = (m_index + m_files.size() - 1) % m_files.size();
-            if (prepare_texture()) {
+            if (check_qoi(current_file())) {
                 break;
             } else {
                 m_files.erase(m_files.begin() + static_cast<std::ptrdiff_t>(m_index));
             }
         }
 
-        int width, height;
-        glfwGetWindowSize(m_window, &width, &height);
-        update_aspect(width, height);
+        m_update_texture = prev >= m_files.size() or m_files[prev] != m_files[m_index];
+        m_update_title   = true;
     }
 
     void QoiView::reset_zoom()
     {
         m_zoom = 1.0f;
         apply_uniform(Uniform::Zoom);
-        update_title();
+        m_update_title = true;
     }
 
     void QoiView::reset_offset()
@@ -449,12 +464,12 @@ namespace qoiview
         if (m_texture == 0) {
             gl::glGenTextures(1, &m_texture);
             gl::glBindTexture(gl::GL_TEXTURE_2D, m_texture);
-        }
 
-        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_CLAMP_TO_EDGE);
-        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_CLAMP_TO_EDGE);
-        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
-        gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_S, gl::GL_CLAMP_TO_EDGE);
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_WRAP_T, gl::GL_CLAMP_TO_EDGE);
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MIN_FILTER, gl::GL_LINEAR_MIPMAP_LINEAR);
+            gl::glTexParameteri(gl::GL_TEXTURE_2D, gl::GL_TEXTURE_MAG_FILTER, gl::GL_LINEAR);
+        }
 
         auto&& [desc, buffer] = *prep;
 
@@ -473,7 +488,6 @@ namespace qoiview
             gl::GL_UNSIGNED_BYTE,
             buffer.data()
         );
-        gl::glGenerateMipmap(gl::GL_TEXTURE_2D);
 
         gl::glUseProgram(m_program);
         apply_uniform(Uniform::Tex);

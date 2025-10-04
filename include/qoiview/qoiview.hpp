@@ -74,6 +74,8 @@ namespace qoiview
         static void callback_mouse_button(GLFWwindow* window, int button, int action, int);
         static void callback_scroll(GLFWwindow* window, double, double yoffset);
 
+        static bool check_qoi(const fs::path& path);
+
         void update_aspect(int width, int height);
         void update_zoom(Zoom zoom);
         void update_offset(Movement movement);
@@ -112,6 +114,9 @@ namespace qoiview
 
         std::deque<fs::path> m_files;
         std::size_t          m_index = 0;
+
+        bool m_update_texture = true;
+        bool m_update_title   = true;
 
         AsyncDecoder m_decoder;
 

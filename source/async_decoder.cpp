@@ -39,8 +39,8 @@ namespace qoiview
 
         m_task.emplace(path, desc.value());
 
-        std::memset(m_buffer.data(), 0, m_offset_out);
-        m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels));
+        m_buffer.clear();
+        m_buffer.resize(desc->width * desc->height * static_cast<std::size_t>(desc->channels), 0x00);
 
         m_offset_out = 0;
         m_offset_in  = qoipp::constants::header_size;

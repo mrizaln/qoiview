@@ -108,13 +108,8 @@ std::variant<Args, int> parse_args(int argc, char** argv)
 
     auto check_hex = [](std::string_view hex) {
         auto msg = "invalid color hex";
-        if (hex.size() != 6) {
+        if (hex.size() != 6 or not sr::all_of(hex, [](char c) { return std::isxdigit(c); })) {
             return msg;
-        }
-        for (auto c : hex) {
-            if (!std::isxdigit(c)) {
-                return msg;
-            }
         }
         return "";
     };
