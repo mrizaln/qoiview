@@ -19,7 +19,7 @@ namespace
 
         void main()
         {
-            gl_Position = vec4((position - offset) * aspect * zoom , 0.0, 1.0);
+            gl_Position = vec4((position - offset) * aspect * zoom, 0.0, 1.0);
             v_texcoord = texcoord;
         }
     )glsl";
@@ -56,6 +56,16 @@ namespace
         0, 1, 2,    // upper-right triangle
         2, 3, 0,    // lower-left triangle
     };
+
+    float scale_local_to_screen(float scale, float aspect, int image_width, int window_width)
+    {
+        return scale * static_cast<float>(window_width) / static_cast<float>(image_width) * aspect;
+    }
+
+    float scale_screen_to_local(float scale, float aspect, int image_width, int window_width)
+    {
+        return scale * static_cast<float>(image_width) / static_cast<float>(window_width) / aspect;
+    }
 }
 
 namespace qoiview
@@ -123,7 +133,7 @@ namespace qoiview
         case GLFW_KEY_N: view.toggle_filtering(); break;
         case GLFW_KEY_M: view.toggle_mipmap(); break;
         case GLFW_KEY_R: (view.reset_zoom(), view.reset_offset()); break;
-        case GLFW_KEY_P: fmt::println("{}", view.current_file().c_str()); break;
+        case GLFW_KEY_P: fmt::println("{}", view.m_files[view.m_index].c_str()); break;
         case GLFW_KEY_UP: view.update_zoom(Zoom::In); break;
         case GLFW_KEY_DOWN: view.update_zoom(Zoom::Out); break;
         case GLFW_KEY_RIGHT: view.file_next(); break;
@@ -251,10 +261,16 @@ namespace qoiview
 
     void QoiView::update_zoom(Zoom zoom)
     {
+        int width, height;
+        glfwGetWindowSize(m_window, &width, &height);
+
+        const auto min = scale_screen_to_local(1e-3f, m_aspect.x, m_image_size.x, width);
+        const auto max = scale_screen_to_local(1e3f, m_aspect.x, m_image_size.x, width);
+
         if (zoom == Zoom::In) {
-            m_zoom *= 1.1f;
+            m_zoom = std::min(m_zoom * 1.1f, max);
         } else {
-            m_zoom /= 1.1f;
+            m_zoom = std::max(m_zoom / 1.1f, min);
         }
 
         apply_uniform(Uniform::Zoom);
@@ -320,7 +336,7 @@ namespace qoiview
 
         while (true and not m_files.empty()) {
             m_index = m_index % m_files.size();
-            if (check_qoi(current_file())) {
+            if (check_qoi(m_files[m_index])) {
                 break;
             } else {
                 m_files.erase(m_files.begin() + static_cast<std::ptrdiff_t>(m_index));
@@ -340,7 +356,7 @@ namespace qoiview
         auto prev = m_index;
         while (true and not m_files.empty()) {
             m_index = (m_index + m_files.size() - 1) % m_files.size();
-            if (check_qoi(current_file())) {
+            if (check_qoi(m_files[m_index])) {
                 break;
             } else {
                 m_files.erase(m_files.begin() + static_cast<std::ptrdiff_t>(m_index));
@@ -369,18 +385,16 @@ namespace qoiview
         int width, height;
         glfwGetWindowSize(m_window, &width, &height);
 
-        auto window_scale = static_cast<float>(width) / static_cast<float>(m_mode->width);
-        auto image_scale  = static_cast<float>(m_image_size.x) / static_cast<float>(m_mode->width);
-        auto zoom         = static_cast<int>(m_zoom * 100.0f * window_scale / image_scale * m_aspect.x);
+        auto zoom = scale_local_to_screen(m_zoom, m_aspect.x, m_image_size.x, width);
 
         auto title = fmt::format(
-            "[{}/{}] [{}x{}] [{}%] QoiView - {} [filter:{}|mipmap:{}]",
+            "[{}/{}] [{}x{}] [{:.2f}%] QoiView - {} [filter:{}|mipmap:{}]",
             m_index + 1,
             m_files.size(),
             m_image_size.x,
             m_image_size.y,
-            zoom,
-            current_file().filename().string(),
+            zoom * 100.0f,
+            m_files[m_index].filename().c_str(),
             m_filter == Filter::Linear ? "linear" : "nearest",
             m_mipmap ? "yes" : "no"
         );
@@ -453,7 +467,7 @@ namespace qoiview
 
     bool QoiView::prepare_texture()
     {
-        const auto& file = current_file();
+        const auto& file = m_files[m_index];
 
         auto prep = m_decoder.prepare(file);
         if (not prep) {

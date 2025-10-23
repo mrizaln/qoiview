@@ -64,8 +64,6 @@ namespace qoiview
 
         void run(int width, int height, Color background);
 
-        const fs::path& current_file() const { return m_files[m_index]; }
-
     private:
         static void callback_error(int error, const char* description);
         static void callback_framebuffer_size(GLFWwindow* window, int width, int height);
@@ -121,7 +119,7 @@ namespace qoiview
         AsyncDecoder m_decoder;
 
         Vec2<int> m_image_size;
-        Vec2<int> m_window_pos;
-        Vec2<int> m_window_size;
+        Vec2<int> m_window_pos;     // only used for restoring from fullscreen
+        Vec2<int> m_window_size;    // only used for restoring from fullscreen
     };
 }
