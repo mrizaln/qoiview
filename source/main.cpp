@@ -324,11 +324,11 @@ try {
 
     glfwTerminate();
 } catch (const std::exception& e) {
-    fmt::println(stderr, "{}", e.what());
+    fmt::println(stderr, "Exception occurred: {}", e.what());
     glfwTerminate();
     return 1;
 } catch (...) {
-    fmt::println(stderr, "Unknown error");
+    fmt::println(stderr, "Exception occurred: Unknown error");
     glfwTerminate();
     return 1;
 }

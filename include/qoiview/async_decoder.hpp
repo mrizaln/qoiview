@@ -37,6 +37,9 @@ namespace qoiview
             qoipp::ByteCSpan buffer;
         };
 
+        AsyncDecoder() = default;
+        ~AsyncDecoder() { stop(); }
+
         void launch();
 
         qoipp::Result<Preparation> prepare(fs::path path);

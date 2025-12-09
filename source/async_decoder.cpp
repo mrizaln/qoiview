@@ -93,12 +93,14 @@ namespace qoiview
 
     void AsyncDecoder::stop()
     {
-        m_thread.request_stop();
+        if (m_thread.joinable()) {
+            m_thread.request_stop();
 
-        m_running.store(true, std::memory_order::release);
-        m_running.notify_one();
+            m_running.store(true, std::memory_order::release);
+            m_running.notify_one();
 
-        m_thread.join();
+            m_thread.join();
+        }
     }
 
     void AsyncDecoder::decode_task(std::stop_token token)
