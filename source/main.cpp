@@ -319,8 +319,10 @@ try {
     glfwMakeContextCurrent(window);
     glbinding::initialize(glfwGetProcAddress);
 
-    auto view = QoiView{ window, inputs.files, inputs.start };
-    view.run(width, height, background);
+    {
+        auto view = QoiView{ window, inputs.files, inputs.start };
+        view.run(width, height, background);
+    }
 
     glfwTerminate();
 } catch (const std::exception& e) {
