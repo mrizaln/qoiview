@@ -487,21 +487,13 @@ namespace qoiview
 
         auto&& [desc, buffer] = *prep;
 
-        auto width  = static_cast<gl::GLint>(desc.width);
-        auto height = static_cast<gl::GLint>(desc.height);
+        auto w = static_cast<gl::GLint>(desc.width);
+        auto h = static_cast<gl::GLint>(desc.height);
 
-        // TODO: clear texture without copying data: https://stackoverflow.com/a/7196109
-        gl::glTexImage2D(
-            gl::GL_TEXTURE_2D,
-            0,
-            gl::GL_RGBA,
-            width,
-            height,
-            0,
-            gl::GL_RGBA,
-            gl::GL_UNSIGNED_BYTE,
-            buffer.data()
-        );
+        // NOTE: clear texture without copying data: https://stackoverflow.com/a/7196109
+        gl::glTexImage2D(gl::GL_TEXTURE_2D, 0, gl::GL_RGBA, w, h, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, NULL);
+        const auto clear_color = std::array{ 0.0, 0.0, 0.0, 0.0 };
+        gl::glClearTexImage(m_texture, 0, gl::GL_RGBA, gl::GL_UNSIGNED_BYTE, clear_color.data());
 
         gl::glUseProgram(m_program);
         apply_uniform(Uniform::Tex);
