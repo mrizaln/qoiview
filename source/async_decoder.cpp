@@ -8,15 +8,16 @@ namespace qoiview
 {
     void AsyncDecoder::launch()
     {
-        m_thread = std::jthread{ [&](std::stop_token token) { decode_task(token); } };
+        m_thread = std::jthread{ [&](std::stop_token token) { run(token); } };
     }
 
     qoipp::Result<AsyncDecoder::Preparation> AsyncDecoder::prepare(fs::path path)
     {
-        if (m_running.load(std::memory_order::acquire)) {
-            m_reset.store(true, std::memory_order::release);
-            m_reset.wait(true);
+        if (not m_complete.load(Ord::acquire)) {
+            m_cancel.store(true, Ord::release);
+            m_cancel.notify_one();
         }
+        m_complete.wait(false);
 
         m_decoder.reset();
 
@@ -56,15 +57,12 @@ namespace qoiview
             return std::nullopt;
         }
 
-        if (m_running.load(std::memory_order::acquire)) {
-            m_pause.store(true, std::memory_order::release);
-            m_pause.wait(true);
-        }
-
         const auto width = m_task->desc.width * static_cast<std::size_t>(m_task->desc.channels);
 
+        auto off_out = m_off_out.load(Ord::acquire);
+
         auto start = m_line_start;
-        auto stop  = m_off_out / width;
+        auto stop  = off_out / width;
 
         if (start == stop) {
             return std::nullopt;
@@ -73,10 +71,7 @@ namespace qoiview
         auto count = stop - start;
         auto span  = std::span{ m_buffer.begin() + static_cast<std::ptrdiff_t>(start * width), stop * width };
 
-        m_line_start = stop + (m_off_out % width == 0);
-
-        m_running.store(true, std::memory_order::release);
-        m_running.notify_one();
+        m_line_start = stop + (off_out % width == 0);
 
         return Work{
             .data  = span,
@@ -87,134 +82,122 @@ namespace qoiview
 
     void AsyncDecoder::start()
     {
-        m_running.store(true, std::memory_order::release);
-        m_running.notify_one();
+        spdlog::debug("Decode start: {}", m_task.value_or({}).path.c_str());
+
+        m_complete.store(false, Ord::release);
+        m_wake.store(true, Ord::release);
+        m_cv.notify_one();
     }
 
     void AsyncDecoder::stop()
     {
         if (m_thread.joinable()) {
             m_thread.request_stop();
-
-            m_running.store(true, std::memory_order::release);
-            m_running.notify_one();
-
+            m_cancel.store(true, Ord::release);
+            m_wake.store(true, Ord::release);
+            m_cv.notify_one();
             m_thread.join();
         }
     }
 
-    void AsyncDecoder::decode_task(std::stop_token token)
+    void AsyncDecoder::run(std::stop_token token)
     {
-        constexpr auto buf_size = 64 * 1024uz;
+        while (not token.stop_requested()) {
+            if (auto cancel = m_cancel.load(Ord::acquire); not m_complete.load(Ord::acquire) and not cancel) {
+                m_complete.store(decode(), Ord::release);
+                m_complete.notify_one();
+            } else {
+                if (cancel) {
+                    m_cancel.store(false, Ord::release);
+                    m_complete.store(true, Ord::release);
+                    m_complete.notify_one();
+                }
+                auto lock = std::unique_lock{ m_mutex };
+                m_cv.wait(lock, [this] { return m_wake.load(Ord::acquire); });
+                m_wake.store(false, Ord::release);
+            }
+        }
+    }
 
-        auto in_buf = qoipp::ByteVec(buf_size);
+    // true : complete
+    // false: incomplete
+    bool AsyncDecoder::decode()
+    {
+        assert(m_file and m_task);
+
+        auto [path, desc]   = m_task.value();
+        auto& [file, fsize] = m_file.value();
+        auto cancel         = false;
+
+        auto off_out = m_off_out.load(Ord::acquire);
 
         auto create_out_span = [&] {
             return std::span{
-                m_buffer.begin() + static_cast<std::ptrdiff_t>(m_off_out),
-                m_buffer.size() - m_off_out,
+                m_buffer.begin() + static_cast<std::ptrdiff_t>(off_out),
+                m_buffer.size() - off_out,
             };
         };
 
-        auto wake_waiters = [&] {
-            m_reset.store(false, std::memory_order::release);
-            m_reset.notify_one();
+        if (off_out < m_buffer.size()    //
+            and m_off_in < fsize         //
+            and file.good()) {
 
-            m_pause.store(false, std::memory_order::release);
-            m_pause.notify_one();
-        };
+            try {
+                file.read(
+                    reinterpret_cast<char*>(m_in_buf.data() + m_leftover),
+                    static_cast<std::streamsize>(m_in_buf.size() - m_leftover)
+                );
+            } catch (const std::ios_base::failure& e) {
+                spdlog::error("Failed to read file {:?}: {}", path.c_str(), e.what());
+            }
 
-        spdlog::debug("Decoder started");
+            auto in_size = std::min(static_cast<std::size_t>(file.gcount()) + m_leftover, fsize - m_off_in);
+            auto in      = std::span{ m_in_buf.begin(), in_size };
+            auto out     = create_out_span();
 
-        m_running.wait(false);
+            m_leftover = 0uz;
 
-        while (not token.stop_requested()) {
-            assert(m_file and m_task);
+            while (not in.empty()) {
+                if (auto res = m_decoder.decode(out, in); res) {
+                    off_out  += res->written;
+                    m_off_in += res->processed;
 
-            auto [path, desc]   = m_task.value();
-            auto& [file, fsize] = m_file.value();
-            auto leftover       = 0uz;
-            auto cancel         = false;
-
-            spdlog::debug("Decoding start: {:?}", path.c_str());
-
-            while (not token.stop_requested()         //
-                   and m_off_out < m_buffer.size()    //
-                   and m_off_in < fsize               //
-                   and file.good()) {
-
-                if (m_pause.exchange(false, std::memory_order::acq_rel)) {
-                    m_running.store(false, std::memory_order::release);
-                    m_pause.notify_one();
-                    m_running.wait(false);
-                } else if (cancel = m_reset.exchange(false, std::memory_order::acq_rel); cancel) {
-                    m_running.store(false, std::memory_order::release);
-                    m_reset.notify_one();
+                    if (res->processed == 0) {
+                        m_leftover = in.size();
+                        sr::copy(in, m_in_buf.begin());
+                        in = {};
+                    } else {
+                        in = in.subspan(res->processed);
+                    }
+                } else {
+                    spdlog::error("Failed to decode {:?}: {}", path.c_str(), to_string(res.error()));
+                    cancel = true;
                     break;
                 }
-
-                try {
-                    file.read(
-                        reinterpret_cast<char*>(in_buf.data() + leftover),
-                        static_cast<std::streamsize>(in_buf.size() - leftover)
-                    );
-                } catch (const std::ios_base::failure& e) {
-                    spdlog::error("Failed to read file {:?}: {}", path.c_str(), e.what());
-                }
-
-                auto in_size = std::min(static_cast<std::size_t>(file.gcount()) + leftover, fsize - m_off_in);
-                auto in      = std::span{ in_buf.begin(), in_size };
-                auto out     = create_out_span();
-
-                leftover = 0uz;
-
-                while (not in.empty()) {
-                    if (auto res = m_decoder.decode(out, in); res) {
-                        m_off_out += res->written;
-                        m_off_in  += res->processed;
-
-                        if (res->processed == 0) {
-                            leftover = in.size();
-                            sr::copy(in, in_buf.begin());
-                            in = {};
-                        } else {
-                            in = in.subspan(res->processed);
-                        }
-                    } else {
-                        spdlog::error("Failed to decode {:?}: {}", path.c_str(), to_string(res.error()));
-
-                        m_running.store(false, std::memory_order::release);
-                        cancel = true;
-                        wake_waiters();
-                        break;
-                    }
-                }
             }
-
-            if (cancel) {
-                spdlog::debug("Decoding cancelled");
-
-                m_running.wait(false);
-                continue;
-            }
-
-            while (m_decoder.has_run_count()) {
-                auto out   = create_out_span();
-                m_off_out += m_decoder.drain_run(out).value();
-            }
-
-            if (m_off_out >= m_buffer.size() or m_off_in >= fsize or file.fail()) {
-                spdlog::debug("Decoding complete{}", m_off_out < m_buffer.size() ? " (truncated)" : "");
-                spdlog::debug("Decoded data: {}/{}", m_off_in, fsize);
-
-                m_file->handle.close();
-                m_running.store(false, std::memory_order::release);
-                wake_waiters();
-            }
-
-            m_running.wait(false);
         }
 
-        spdlog::debug("Decoder stopped");
+        if (cancel) {
+            spdlog::debug("Decode cancelled");
+            return true;
+        }
+
+        while (m_decoder.has_run_count()) {
+            auto out  = create_out_span();
+            off_out  += m_decoder.drain_run(out).value();
+        }
+
+        if (off_out >= m_buffer.size() or m_off_in >= fsize or file.fail()) {
+            spdlog::debug("Decode complete{}: {}", off_out < m_buffer.size() ? " (trunc)" : "", path.c_str());
+            spdlog::debug("Decoded data: {}/{}", m_off_in, fsize);
+
+            m_off_out.store(off_out, Ord::release);
+
+            m_file->handle.close();
+            return true;
+        }
+
+        m_off_out.store(off_out, Ord::release);
+        return false;
     }
 }

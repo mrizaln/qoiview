@@ -4,7 +4,9 @@
 
 #include <qoipp/stream.hpp>
 
+#include <condition_variable>
 #include <fstream>
+#include <mutex>
 #include <thread>
 
 namespace qoiview
@@ -12,6 +14,8 @@ namespace qoiview
     class AsyncDecoder
     {
     public:
+        using Ord = std::memory_order;
+
         struct Task
         {
             fs::path    path;
@@ -51,21 +55,30 @@ namespace qoiview
         std::optional<Task> current() const { return m_task; }
 
     private:
-        void resume();
-        void decode_task(std::stop_token token);
+        using Id = int32_t;
 
-        std::jthread      m_thread;
-        std::atomic<bool> m_running = false;
-        std::atomic<bool> m_reset   = false;
-        std::atomic<bool> m_pause   = false;
+        void run(std::stop_token token);
+        bool decode();
+
+        std::jthread m_thread;
+
+        std::atomic<bool> m_wake     = false;
+        std::atomic<bool> m_cancel   = false;
+        std::atomic<bool> m_complete = true;
+
+        std::mutex              m_mutex;
+        std::condition_variable m_cv;
 
         qoipp::StreamDecoder     m_decoder;
         std::optional<Task>      m_task;
         std::optional<File>      m_file;
         std::vector<qoipp::Byte> m_buffer;
 
-        std::size_t m_off_out    = 0;
-        std::size_t m_off_in     = 0;
-        std::size_t m_line_start = 0;
+        qoipp::ByteVec m_in_buf   = qoipp::ByteVec(16 * 1024);
+        std::size_t    m_leftover = 0;
+
+        std::atomic<std::size_t> m_off_out    = 0;
+        std::size_t              m_off_in     = 0;
+        std::size_t              m_line_start = 0;
     };
 }
