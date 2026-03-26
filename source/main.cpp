@@ -248,6 +248,9 @@ try {
     glfwWindowHint(GLFW_CLIENT_API, GLFW_OPENGL_ES_API);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 3);
     glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 0);
+    glfwWindowHintString(GLFW_WAYLAND_APP_ID, "qoiview");
+    glfwWindowHintString(GLFW_X11_CLASS_NAME, "qoiview");
+    glfwWindowHintString(GLFW_X11_INSTANCE_NAME, "qoiview");
 
     auto* monitor = glfwGetPrimaryMonitor();
     auto* mode    = glfwGetVideoMode(monitor);
